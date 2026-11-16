@@ -13,9 +13,10 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
+  <div id="splash" class="splash" aria-hidden="true"><img src="icons/arcw-logo.png" alt=""></div>
   <header class="topbar">
     <div class="brand"><img src="icons/icon-192.png" alt=""><span>ARCW Training</span></div>
     <div class="who" id="who"></div>
@@ -26,5 +27,17 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="config.js?v=2"></script>
   <script src="app.js?v=2"></script>
+  <script>
+    // Startbildschirm: mind. 1,2 s zeigen, dann ausblenden sobald die App geladen hat (max. 4 s)
+    (function () {
+      var t0 = Date.now(), sp = document.getElementById('splash');
+      (function check() {
+        var dt = Date.now() - t0, busy = document.querySelector('#app > .loading');
+        if (dt < 1200 || (busy && dt < 4000)) return setTimeout(check, 100);
+        sp.classList.add('hide');
+        setTimeout(function () { sp.remove(); }, 400);
+      })();
+    })();
+  </script>
 </body>
 </html>
