@@ -18,7 +18,7 @@ var TAB_SETTINGS = 'App-Einstellungen';
 var LOG_HEADERS = [
   'ID', 'Zeitstempel', 'Sportler', 'Gruppe', 'Plan-Blatt', 'Datum', 'Einheit-Key', 'Einheit', 'Typ',
   'Sportart', 'Ersatz', 'Plan-Minuten', 'Minuten', 'km', 'Puls', 'RPE', 'Vorgaben', 'Vorgaben erfüllt',
-  'Gewichte', 'Ergo-Belastung', 'Split', 'Kommentar', 'Screenshot', 'Screenshot-Links', 'Daten (JSON)'
+  'Gewichte', 'Ergo-Belastung', 'Split', 'Kommentar', 'Screenshot', 'Screenshot-Links', 'Daten (JSON)', 'Plan-Datum'
 ];
 
 var ATHLETES = [
@@ -64,7 +64,8 @@ function setup() {
       .setFontWeight('bold').setBackground('#0b3d5c').setFontColor('#ffffff');
     log.setFrozenRows(1);
     log.getRange('F:F').setNumberFormat('@');
-    log.hideColumns(LOG_HEADERS.length); // JSON-Spalte
+    log.hideColumns(25); // JSON-Spalte
+    log.getRange('Z:Z').setNumberFormat('@');
   }
 
   // Einstellungen
@@ -240,7 +241,7 @@ function readLogs_(filterName) {
   var sh = logSheet_();
   var last = sh.getLastRow();
   if (last < 2) return [];
-  var v = sh.getRange(2, 1, last - 1, LOG_HEADERS.length).getValues();
+  var v = sh.getRange(2, 1, last - 1, Math.min(LOG_HEADERS.length, sh.getMaxColumns())).getValues();
   var out = [];
   v.forEach(function (r, i) {
     if (!r[0]) return;
@@ -259,7 +260,8 @@ function readLogs_(filterName) {
       ergo: r[19], split: r[20], comment: r[21],
       screenshot: r[22] === 'Ja',
       files: data.files || [],
-      fileCount: (data.files || []).length
+      fileCount: (data.files || []).length,
+      planDate: r[25] instanceof Date ? dateFmt_()(r[25]) : String(r[25] || '')
     });
   });
   return out;
@@ -402,17 +404,30 @@ function saveLog_(user, log, files) {
       log.comment || '',
       stored.length ? 'Ja' : 'Nein',
       stored.map(function (f) { return f.url; }).join('\n'),
-      JSON.stringify({ hints: hints, weights: weights, files: stored })
+      JSON.stringify({ hints: hints, weights: weights, files: stored }),
+      log.planDate || ''
     ];
+    ensureLogHeader_(sh);
     if (existing) {
       sh.getRange(existing.row, 1, 1, row.length).setValues([row]);
     } else {
       sh.appendRow(row);
-      sh.getRange(sh.getLastRow(), 6).setNumberFormat('@').setValue(log.date);
+      var lr = sh.getLastRow();
+      sh.getRange(lr, 6).setNumberFormat('@').setValue(log.date);
+      sh.getRange(lr, 26).setNumberFormat('@').setValue(log.planDate || '');
     }
     return { id: id, files: stored.length };
   } finally {
     lock.releaseLock();
+  }
+}
+
+/** Ältere Protokoll-Tabs um neue Spalten ergänzen. */
+function ensureLogHeader_(sh) {
+  if (sh.getMaxColumns() < LOG_HEADERS.length) sh.insertColumnsAfter(sh.getMaxColumns(), LOG_HEADERS.length - sh.getMaxColumns());
+  var h = sh.getRange(1, 1, 1, LOG_HEADERS.length).getValues()[0];
+  if (h[25] !== LOG_HEADERS[25]) {
+    sh.getRange(1, 26).setValue(LOG_HEADERS[25]).setFontWeight('bold').setBackground('#0b3d5c').setFontColor('#ffffff');
   }
 }
 
