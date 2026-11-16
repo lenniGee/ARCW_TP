@@ -267,7 +267,7 @@
     let status;
     if (logs.length) {
       const l = logs[0];
-      status = `<div class="status"><div class="row"><span class="chip good">✓ Protokolliert</span><span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}</div>
+      status = `<div class="status"><div class="row"><span class="chip good">✓ Protokolliert${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span><span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}</div>
         ${opts.noLog ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>`;
     } else {
       const past = unit.date < todayISO();
@@ -335,7 +335,7 @@
     if (total) html += `<div class="faint" style="margin:0 2px 8px">Geplant: ${fmtMin(total)}</div>`;
     html += units.map((u) => unitCard(ctx, u)).join('');
     if (extra.length) {
-      html += '<div class="sectiontitle"><h2>Zusätzlich protokolliert</h2></div>';
+      html += '<div class="sectiontitle"><h2>Weitere Einträge an diesem Tag</h2></div>';
       html += extra.map((l) => logCard(ctx, l, true)).join('');
     }
     html += `<button class="btn secondary block mt" id="addextra">+ Zusatzeinheit eintragen</button>`;
@@ -560,7 +560,7 @@
     else if (l.split) lines.push('Split: ' + l.split);
     if (l.comment) lines.push('„' + l.comment + '“');
     const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Screenshot ${i + 1}</a>`).join('')}</div>` : '';
-    return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}</span></div>
+    return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}${l.planDate && l.planDate !== l.date ? ' · geplant ' + fmtShort(l.planDate) : ''}</span></div>
       <div class="row">${l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button></div></div>
       <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport ? ' · ' + esc(l.sport) : ''}</div>
       ${lines.length ? `<div class="logline">${esc(lines.join('\n'))}</div>` : ''}${files}</div>`;
@@ -704,7 +704,7 @@
 
   function openLogForm(ctx, unit, log, date) {
     const isExtra = !unit;
-    const d = log ? log.date : unit ? unit.date : date;
+    const d = log ? log.date : unit ? (unit.date > todayISO() ? todayISO() : unit.date) : date;
     const type = log ? log.type : unit ? unit.type : 'ausdauer';
     const st = {
       type: type === 'rest' ? 'ausdauer' : type,
@@ -729,7 +729,7 @@
     const root = $('#modal-root');
     const title = unit ? unit.title : (log ? log.title : 'Zusatzeinheit');
     root.innerHTML = `<div class="modal-back"><div class="modal" role="dialog" aria-modal="true" aria-label="Einheit protokollieren">
-      <div class="modal-head"><div><h2>${esc(title)}</h2><div class="faint">${fmtLong(d)}${unit && unit.minutes ? ' · geplant ' + unit.minutes + ' min' : ''}${ctx.isCoach ? ' · für ' + esc(ctx.athlete.name) : ''}</div></div>
+      <div class="modal-head"><div><h2>${esc(title)}</h2><div class="faint">${unit ? 'Plan: ' + fmtLong(unit.date) : fmtLong(d)}${unit && unit.minutes ? ' · ' + unit.minutes + ' min' : ''}${ctx.isCoach ? ' · für ' + esc(ctx.athlete.name) : ''}</div></div>
       <button class="iconbtn" id="mclose" aria-label="Schließen">✕</button></div>
       <p class="faint" style="margin:4px 0 0">Alle Felder sind optional.</p>
       <div id="mbody"></div>
@@ -746,6 +746,11 @@
           <label class="f">Bezeichnung</label><input class="in" id="ftitle" value="${esc(log ? log.title : '')}" placeholder="z. B. Lauf, Schwimmen, Kraft">
           <div class="grid2"><div><label class="f">Datum</label><input class="in" type="date" id="fdate" value="${esc(d)}"></div>
           <div><label class="f">Art</label><select class="in" id="ftype"><option value="ausdauer" ${!isKraft ? 'selected' : ''}>Ausdauer</option><option value="kraft" ${isKraft ? 'selected' : ''}>Kraft</option></select></div></div></div>`;
+      }
+      if (!isExtra) {
+        const moved = unit && snapDate() !== unit.date;
+        h += `<div class="formsec"><h3>Wann trainiert?</h3><label class="f">Durchgeführt am</label><input class="in" type="date" id="fdate" value="${esc(d)}" max="${todayISO()}">
+          <div class="faint" style="margin-top:6px">Geplant für ${unit ? fmtLong(unit.date) : '–'}${moved ? ' – verschoben' : ''}</div></div>`;
       }
       if (unit && unit.ersatz) {
         h += `<label class="check mt"><input type="checkbox" id="fersatz" ${st.ersatz ? 'checked' : ''}><span>Ersatz-Programm gemacht (Wasser ist ausgefallen)</span></label>`;
@@ -791,6 +796,8 @@
       body.innerHTML = h;
 
       // Events
+      const fdt = $('#fdate');
+      if (fdt && !isExtra) fdt.onchange = () => { snapshot(); draw(); };
       const fe = $('#fersatz');
       if (fe) fe.onchange = () => { snapshot(); st.ersatz = fe.checked; st.ersatzChanged = true; draw(); };
       const ft = $('#ftype');
@@ -815,6 +822,7 @@
     }
     // Werte beim Neuzeichnen erhalten
     let snap = null;
+    function snapDate() { const el = document.getElementById('fdate'); return el ? el.value : d; }
     function snapshot() {
       snap = {};
       $$('input.in, select.in, textarea.in', body).forEach((el) => { if (el.id) snap[el.id] = el.value; });
@@ -850,7 +858,8 @@
       const payload = {
         id: log ? log.id : undefined,
         athlete: ctx.isCoach ? ctx.athlete.name : undefined,
-        date: isExtra ? (val('fdate') || d) : d,
+        date: val('fdate') || d,
+        planDate: unit ? unit.date : '',
         unitKey: unit ? unit.key : (log ? log.unitKey : 'extra|' + Date.now()),
         title: isExtra ? (val('ftitle') || 'Zusatzeinheit') : title,
         type: st.type,
