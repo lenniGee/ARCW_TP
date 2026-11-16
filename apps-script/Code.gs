@@ -39,7 +39,7 @@ function setup() {
   if (!acc) {
     acc = ss.insertSheet(TAB_ACCESS);
     acc.getRange(1, 1, 1, 7).setValues([['Name', 'Gruppe', 'Plan-Blatt', 'Kraft-Blatt', 'PIN', 'Rolle', 'Aktiv']])
-      .setFontWeight('bold').setBackground('#0b3d5c').setFontColor('#ffffff');
+      .setFontWeight('bold').setBackground('#1a7f24').setFontColor('#ffffff');
     var used = {};
     var rows = ATHLETES.map(function (a) {
       var plan = a[2] || (a[1] === 'A' ? 'Junioren A' : 'Junioren B');
@@ -61,7 +61,7 @@ function setup() {
   if (!log) {
     log = ss.insertSheet(TAB_LOG);
     log.getRange(1, 1, 1, LOG_HEADERS.length).setValues([LOG_HEADERS])
-      .setFontWeight('bold').setBackground('#0b3d5c').setFontColor('#ffffff');
+      .setFontWeight('bold').setBackground('#1a7f24').setFontColor('#ffffff');
     log.setFrozenRows(1);
     log.getRange('F:F').setNumberFormat('@');
     log.hideColumns(25); // JSON-Spalte
@@ -427,7 +427,7 @@ function ensureLogHeader_(sh) {
   if (sh.getMaxColumns() < LOG_HEADERS.length) sh.insertColumnsAfter(sh.getMaxColumns(), LOG_HEADERS.length - sh.getMaxColumns());
   var h = sh.getRange(1, 1, 1, LOG_HEADERS.length).getValues()[0];
   if (h[25] !== LOG_HEADERS[25]) {
-    sh.getRange(1, 26).setValue(LOG_HEADERS[25]).setFontWeight('bold').setBackground('#0b3d5c').setFontColor('#ffffff');
+    sh.getRange(1, 26).setValue(LOG_HEADERS[25]).setFontWeight('bold').setBackground('#1a7f24').setFontColor('#ffffff');
   }
 }
 
