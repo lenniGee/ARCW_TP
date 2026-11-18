@@ -402,6 +402,15 @@
     const doneMin = logs.reduce((s, l) => s + logMinutes(l), 0);
     const open = due.filter((u) => u.date < today && !logged.has(u.key));
     const dueLogged = due.filter((u) => logged.has(u.key)).length;
+    // Serie: Trainingstage in Folge, an denen alle geplanten Einheiten erledigt wurden (Ruhetage zählen nicht, heute erst wenn erledigt)
+    const byDay = {};
+    due.forEach((u) => { (byDay[u.date] = byDay[u.date] || []).push(u); });
+    let streak = 0, bestStreak = 0;
+    Object.keys(byDay).sort().forEach((day) => {
+      const done = byDay[day].every((u) => logged.has(u.key));
+      if (done) { streak++; bestStreak = Math.max(bestStreak, streak); }
+      else if (day < today) streak = 0;
+    });
     const rpeLogs = logs.filter((l) => l.rpe);
     const ausd = logs.filter((l) => l.type === 'ausdauer');
     const shots = ausd.filter((l) => l.screenshot).length;
@@ -439,6 +448,7 @@
       rpeAvg: rpeLogs.length ? rpeLogs.reduce((s, l) => s + l.rpe, 0) / rpeLogs.length : null,
       rpe7: last7.length ? last7.reduce((s, l) => s + l.rpe, 0) / last7.length : null,
       shots, ausd: ausd.length, hintsTotal, hintsDone, weeks, sports, weights, logs,
+      streak, bestStreak,
       thisWeekPlanned, thisWeekDone, lastLog: logs.length ? logs[logs.length - 1].date : null,
       km: logs.reduce((s, l) => s + (l.km || 0), 0)
     };
@@ -447,7 +457,7 @@
   const pctTxt = (p) => p == null ? '–' : Math.round(p * 100) + ' %';
   function pctChip(p) {
     if (p == null) return '<span class="chip">–</span>';
-    const cls = p >= 0.9 ? 'good' : p >= 0.7 ? 'warn' : 'bad';
+    const cls = p >= 0.98 ? 'good' : p >= 0.875 ? 'warn' : 'bad';
     return `<span class="chip ${cls}">${pctTxt(p)}</span>`;
   }
 
@@ -533,7 +543,8 @@
       <div class="kpi"><div class="l">Einheiten protokolliert</div><div class="v">${st.dueLogged}/${st.due}</div><div class="s">${st.open.length ? st.open.length + ' offen' : 'alles eingetragen'}</div></div>
       <div class="kpi"><div class="l">Ø RPE</div><div class="v">${st.rpeAvg ? fmtNum(st.rpeAvg, 1) : '–'}</div><div class="s">letzte 7 Tage: ${st.rpe7 ? fmtNum(st.rpe7, 1) : '–'}</div></div>
       <div class="kpi"><div class="l">Vorgaben umgesetzt</div><div class="v">${st.hintsTotal ? st.hintsDone + '/' + st.hintsTotal : '–'}</div><div class="s">Intervalle & Tests</div></div>
-      <div class="kpi"><div class="l">Screenshots</div><div class="v">${st.ausd ? st.shots + '/' + st.ausd : '–'}</div><div class="s">bei Ausdauer-Einheiten</div></div>
+      <div class="kpi"><div class="l">Serie</div><div class="v">${st.streak} ${st.streak === 1 ? 'Tag' : 'Tage'}</div><div class="s">alles erledigt in Folge · Rekord ${st.bestStreak}</div></div>
+      ${ctx.isCoach ? `<div class="kpi"><div class="l">Screenshots</div><div class="v">${st.ausd ? st.shots + '/' + st.ausd : '–'}</div><div class="s">bei Ausdauer-Einheiten</div></div>` : ''}
     </div>`;
     html += `<div class="card"><h2>Minuten pro Woche</h2><div class="faint">seit ${fmtShort(st.start)}</div>${weeklyChart(st.weeks)}</div>`;
     html += `<div class="card"><h2>Belastungsempfinden (RPE)</h2>${rpeChart(st.logs)}</div>`;
