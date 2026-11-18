@@ -576,7 +576,7 @@
     if (l.ergo) lines.push('Ergo: ' + l.ergo + (l.split ? ' · Split ' + l.split : ''));
     else if (l.split) lines.push('Split: ' + l.split);
     if (l.comment) lines.push('„' + l.comment + '“');
-    const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Screenshot ${i + 1}</a>`).join('')}</div>` : '';
+    const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Foto ${i + 1}${f.part ? ' · ' + esc(f.part) : ''}</a>`).join('')}</div>` : '';
     return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}${l.planDate && l.planDate !== l.date ? ' · geplant ' + fmtShort(l.planDate) : ''}</span></div>
       <div class="row">${l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button></div></div>
       <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport && !pl ? ' · ' + esc(l.sport) : ''}</div>
@@ -613,7 +613,7 @@
       const me = S.user && x.name === S.user.name;
       return `<div class="hof-row ${me ? 'me' : ''}"><div class="rank ${rank <= 3 && v > 0 ? 'r' + rank : ''}">${rank}</div>
         <div><b>${esc(x.name)}</b> <span class="faint">${esc(x.group ? 'Junioren ' + x.group : '')}</span><div class="bar"><i style="width:${v / max * 100}%"></i></div></div>
-        <div class="v">${fmtNum(v)} min<small>${mode === 'week' ? '' : x.sessions + ' Einheiten' + (x.km ? ' · ' + fmtNum(x.km) + ' km' : '')}</small></div></div>`;
+        <div class="v">${fmtNum(v)} min<small>${mode === 'week' ? (x.weekSessions != null ? x.weekSessions : '') : x.sessions} Einheit${(mode === 'week' ? x.weekSessions : x.sessions) === 1 ? '' : 'en'}</small></div></div>`;
     }).join('');
     const total = list.reduce((s, x) => s + (mode === 'week' ? x.week : x.minutes), 0);
     app.innerHTML = `<div class="sectiontitle" style="margin-top:0"><h1>Hall of Fame</h1>
@@ -891,10 +891,11 @@
       h += `<div class="formsec"><h3>Belastungsempfinden (RPE)</h3><div class="faint" style="margin-bottom:8px">1 = sehr leicht · 10 = maximal</div>
         <div class="rpe">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => `<button type="button" data-rpe="${n}" class="${st.rpe === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>`;
       const existingFiles = log ? (log.fileCount || (log.files || []).length || (log.screenshot ? 1 : 0)) : 0;
-      h += `<div class="formsec"><h3>Screenshot / Foto</h3>
-        ${existingFiles ? `<div class="chip good" style="margin:6px 0">${existingFiles} bereits hochgeladen</div>` : ''}
-        <label class="upload">${ICON.camera}<span>Bild auswählen</span><input type="file" id="ffile" accept="image/*" multiple></label>
-        <div class="files" id="fprev">${st.files.map((f) => `<img src="${f.data}" alt="">`).join('')}</div></div>`;
+      h += `<div class="formsec"><h3>Screenshots / Fotos</h3>
+        <div class="faint" style="margin:2px 0 8px">Beliebig viele – z. B. eins pro Bestandteil (Ergo, Rad, Lauf …). ${!isKraft ? 'Über das Kamera-Symbol am Bestandteil wird das Foto direkt zugeordnet.' : ''}</div>
+        ${existingFiles ? `<div class="chip good" style="margin:0 0 8px">${existingFiles} bereits hochgeladen</div>` : ''}
+        <label class="upload">${ICON.camera}<span>Foto hinzufügen</span><input type="file" id="ffile" accept="image/*" multiple></label>
+        <div class="files" id="fprev"></div></div>`;
       h += `<div class="formsec"><h3>Kommentar</h3><textarea class="in" id="fcomment" placeholder="Wie lief's? Technik, Wetter, Gefühl …">${esc(log ? log.comment : '')}</textarea></div>`;
       body.innerHTML = h;
 
@@ -906,13 +907,8 @@
       const ft = $('#ftype');
       if (ft) ft.onchange = () => { snapshot(); st.type = ft.value; if (st.type !== 'kraft' && !st.parts.length) st.parts = [emptyPart()]; draw(); };
       $$('[data-rpe]', body).forEach((b) => b.onclick = () => { st.rpe = st.rpe === Number(b.dataset.rpe) ? null : Number(b.dataset.rpe); $$('[data-rpe]', body).forEach((x) => x.classList.toggle('on', Number(x.dataset.rpe) === st.rpe)); });
-      $('#ffile').onchange = async (e) => {
-        const files = Array.from(e.target.files || []);
-        for (const f of files) {
-          try { st.files.push(await compressImage(f)); } catch (err) { toast('Bild konnte nicht gelesen werden'); }
-        }
-        $('#fprev').innerHTML = st.files.map((f) => `<img src="${f.data}" alt="">`).join('');
-      };
+      $('#ffile').onchange = (e) => addFiles(e.target, '');
+      renderFiles();
       if (!isKraft) {
         renderParts();
         $('#addpart').onclick = () => { st.parts.push(emptyPart()); renderParts(); const sels = $$('[data-pf="sport"]', body); if (sels.length) sels[sels.length - 1].focus(); };
@@ -926,6 +922,22 @@
         wl.insertAdjacentHTML('beforeend', `<div class="wrow"><div class="nm">${esc(name)}</div><input class="in" data-w="${i}" data-wname="${esc(name)}" inputmode="decimal" placeholder="kg"></div>`);
       };
       restore();
+    }
+    async function addFiles(input, part) {
+      const files = Array.from(input.files || []);
+      input.value = '';
+      for (const f of files) {
+        try { const img = await compressImage(f); img.part = part || ''; st.files.push(img); } catch (err) { toast('Bild konnte nicht gelesen werden'); }
+      }
+      renderFiles();
+      if (files.length) toast(files.length === 1 ? 'Foto hinzugefügt' : files.length + ' Fotos hinzugefügt');
+    }
+    function renderFiles() {
+      const el = $('#fprev');
+      if (!el) return;
+      el.innerHTML = st.files.map((f, i) => `<div class="thumb"><img src="${f.data}" alt="">${f.part ? `<span class="tlbl">${esc(f.part)}</span>` : ''}<button type="button" data-fdel="${i}" aria-label="Foto entfernen">✕</button></div>`).join('')
+        + (st.files.length ? `<div class="faint" style="align-self:center">${st.files.length} neu</div>` : '');
+      $$('[data-fdel]', el).forEach((b) => b.onclick = () => { st.files.splice(Number(b.dataset.fdel), 1); renderFiles(); renderParts(); });
     }
     function partsTotal() {
       let min = 0, km = 0, hasMin = false, hasKm = false, hrW = 0, hrSum = 0;
@@ -950,7 +962,9 @@
         const opts = SPORTS.concat(p.sport && !SPORTS.includes(p.sport) ? [p.sport] : []);
         return `<div class="part" data-p="${i}">
           <div class="part-top"><select class="in" data-pf="sport" aria-label="Sportart"><option value="">Sportart wählen …</option>${opts.map((x) => `<option ${x === p.sport ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+          <label class="iconbtn pcam" aria-label="Foto zu diesem Bestandteil">${ICON.camera}<input type="file" accept="image/*" multiple data-pcam="${i}"></label>
           <button type="button" class="iconbtn" data-pdel="${i}" aria-label="Bestandteil entfernen">✕</button></div>
+          ${(() => { const n = st.files.filter((f) => f.part && f.part === (p.sport || 'Bestandteil ' + (i + 1))).length; return n ? `<div class="pphoto">✓ ${n} Foto${n > 1 ? 's' : ''} zugeordnet</div>` : ''; })()}
           <div class="grid3"><label><span class="pl">Minuten</span><input class="in" data-pf="minutes" inputmode="numeric" value="${esc(p.minutes)}"></label>
           <label><span class="pl">km</span><input class="in" data-pf="km" inputmode="decimal" value="${esc(p.km)}"></label>
           <label><span class="pl">Puls Ø</span><input class="in" data-pf="hr" inputmode="numeric" value="${esc(p.hr)}"></label></div></div>`;
@@ -964,6 +978,7 @@
         });
       });
       $$('[data-pdel]', list).forEach((b) => b.onclick = () => { st.parts.splice(Number(b.dataset.pdel), 1); renderParts(); });
+      $$('[data-pcam]', list).forEach((inp) => inp.onchange = async () => { const i = Number(inp.dataset.pcam); const p = st.parts[i]; await addFiles(inp, p.sport || 'Bestandteil ' + (i + 1)); renderParts(); });
       updateTotal();
     }
     // Werte beim Neuzeichnen erhalten
@@ -1027,9 +1042,9 @@
         comment: val('fcomment')
       };
       if (isExtra) payload.planMinutes = '';
-      btn.disabled = true; btn.textContent = st.files.length ? 'Lädt Bilder hoch …' : 'Speichert …';
+      btn.disabled = true; btn.textContent = st.files.length ? (st.files.length > 1 ? 'Lädt ' + st.files.length + ' Bilder hoch …' : 'Lädt Bild hoch …') : 'Speichert …';
       try {
-        await api('saveLog', { log: payload, files: st.files.map((f) => ({ data: f.data, mime: f.mime })) });
+        await api('saveLog', { log: payload, files: st.files.map((f) => ({ data: f.data, mime: f.mime, part: f.part || '' })) });
         close();
         toast('Gespeichert');
         await reloadData();
