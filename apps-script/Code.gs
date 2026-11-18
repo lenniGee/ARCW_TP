@@ -384,9 +384,11 @@ function saveLog_(user, log, files) {
       return { name: String(w.name), kg: w.kg === '' || w.kg == null ? null : Number(String(w.kg).replace(',', '.')), note: w.note || '' };
     });
     var id = existing ? existing.id : Utilities.getUuid().slice(0, 8);
+    // Zeitstempel immer in Berliner Zeit, als Text (unabhängig von der Zeitzone der Tabelle)
+    var ts = Utilities.formatDate(new Date(), 'Europe/Berlin', 'dd.MM.yyyy HH:mm:ss');
     var row = [
       id,
-      new Date(),
+      ts,
       athlete.name,
       athlete.group,
       athlete.plan,
@@ -417,10 +419,12 @@ function saveLog_(user, log, files) {
     ];
     ensureLogHeader_(sh);
     if (existing) {
+      sh.getRange(existing.row, 2).setNumberFormat('@');
       sh.getRange(existing.row, 1, 1, row.length).setValues([row]);
     } else {
       sh.appendRow(row);
       var lr = sh.getLastRow();
+      sh.getRange(lr, 2).setNumberFormat('@').setValue(ts);
       sh.getRange(lr, 6).setNumberFormat('@').setValue(log.date);
       sh.getRange(lr, 26).setNumberFormat('@').setValue(log.planDate || '');
     }
