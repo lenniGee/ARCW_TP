@@ -420,7 +420,11 @@
       w = addDays(w, 7);
     }
     const sports = {};
-    logs.forEach((l) => { const k = l.sport || (l.type === 'kraft' ? 'Kraft' : 'Sonstiges'); sports[k] = sports[k] || { min: 0, km: 0, n: 0 }; sports[k].min += logMinutes(l); sports[k].km += l.km || 0; sports[k].n++; });
+    logs.forEach((l) => {
+      const ps = logParts(l);
+      if (!ps.length) { const k = l.type === 'kraft' ? 'Kraft' : (l.sport || 'Sonstiges'); sports[k] = sports[k] || { min: 0, km: 0, n: 0 }; sports[k].min += logMinutes(l); sports[k].n++; return; }
+      ps.forEach((p) => { const k = p.sport || 'Sonstiges'; sports[k] = sports[k] || { min: 0, km: 0, n: 0 }; sports[k].min += Number(String(p.minutes).replace(',', '.')) || 0; sports[k].km += Number(String(p.km).replace(',', '.')) || 0; sports[k].n++; });
+    });
     const weights = {};
     ctx.logs.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach((l) => (l.weights || []).forEach((x) => {
       if (x.kg == null) return;
@@ -551,8 +555,21 @@
     return html;
   }
 
+  function logParts(l) {
+    if (l.parts && l.parts.length) return l.parts;
+    if (l.type === 'kraft') return [];
+    return [{ sport: l.sport || 'Sonstiges', minutes: l.minutes != null ? l.minutes : l.planMinutes, km: l.km, hr: l.hr }];
+  }
+  function partsLine(l) {
+    const ps = l.parts || [];
+    if (ps.length < 2) return '';
+    const n = (v) => { if (v === '' || v == null) return null; const x = Number(String(v).replace(',', '.')); return isNaN(x) ? null : x; };
+    return ps.map((p) => { const m = n(p.minutes), k = n(p.km), hr = n(p.hr); return [p.sport, m != null ? m + ' min' : '', k != null ? fmtNum(k, 2) + ' km' : '', hr != null ? 'HF ' + hr : ''].filter(Boolean).join(' '); }).join(' · ');
+  }
   function logCard(ctx, l, withTitleDate) {
     const lines = [];
+    const pl = partsLine(l);
+    if (pl) lines.push(pl);
     if (l.ersatz) lines.push('Ersatz-Programm');
     if (l.hints && l.hints.length) lines.push(l.hints.map((h) => (h.done ? '✓ ' : '✗ ') + h.text).join('\n'));
     if (l.weights && l.weights.length) lines.push(l.weights.filter((w) => w.kg != null).map((w) => w.name + ': ' + fmtNum(w.kg, 1) + ' kg').join(' · '));
@@ -562,7 +579,7 @@
     const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Screenshot ${i + 1}</a>`).join('')}</div>` : '';
     return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}${l.planDate && l.planDate !== l.date ? ' · geplant ' + fmtShort(l.planDate) : ''}</span></div>
       <div class="row">${l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button></div></div>
-      <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport ? ' · ' + esc(l.sport) : ''}</div>
+      <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport && !pl ? ' · ' + esc(l.sport) : ''}</div>
       ${lines.length ? `<div class="logline">${esc(lines.join('\n'))}</div>` : ''}${files}</div>`;
   }
 
@@ -691,8 +708,87 @@
     else renderPlan(app, ctx, body);
   }
 
+  // ------------------------------------------------------------ Bestandteile aus dem Ablauf erkennen
+  const SPORTS = ['Rudern', 'Ruderbecken', 'Ergo', 'Rad/Spinning', 'Laufen', 'Schwimmen', 'Hallensport', 'Mobilisation', 'Dehnen', 'Rumpf/Athletik', 'Mobilität/Yoga', 'Sonstiges'];
+  const SPORT_KEYS = [
+    ['Ruderbecken', /ruderbecken/i],
+    ['Mobilisation', /mobilisation|mobi\b|mobi-|mobilisier/i],
+    ['Dehnen', /dehnen|stretch|faszienrolle/i],
+    ['Rumpf/Athletik', /rumpf|core|stabi|athletik|plank/i],
+    ['Ergo', /ergo/i],
+    ['Rad/Spinning', /bike|spinning|\brad\b|rad\/|einrollen|radfahren/i],
+    ['Laufen', /lauf|traben|jogg/i],
+    ['Schwimmen', /schwimm/i],
+    ['Hallensport', /halle|hallensport|spiele/i],
+    ['Mobilität/Yoga', /yoga|mobilität/i],
+    ['Rudern', /rudern|einrudern|ausrudern|boot|kleinboot/i]
+  ];
+  function sportOf(text, fallback) {
+    let best = null, pos = Infinity;
+    SPORT_KEYS.forEach(([s, re]) => { const m = re.exec(text); if (m && m.index < pos) { pos = m.index; best = s; } });
+    // "einrudern/ausrudern" in einer Ergo-Einheit = Ergo
+    if (best === 'Rudern' && fallback === 'Ergo' && !/boot|wasser/i.test(text)) best = 'Ergo';
+    return best || fallback || 'Sonstiges';
+  }
+  function sportOrNull(text) {
+    let best = null, pos = Infinity;
+    SPORT_KEYS.forEach(([s, re]) => { const m = re.exec(text); if (m && m.index < pos) { pos = m.index; best = s; } });
+    return best;
+  }
+  function partsFromUnit(unit, ersatz) {
+    const sec = ersatz ? unit.ersatzSections : unit.sections;
+    let base = unit.sport;
+    if (!base || base === 'Sonstiges') base = sportOrNull(ersatz ? unit.ersatz : unit.text + ' ' + unit.title) || base;
+    if (ersatz) base = 'Ergo';
+    let parts = partsFromSections(sec, base);
+    if (!parts.length && unit.minutes) parts = [{ sport: ersatz ? 'Ergo' : (unit.sport || 'Sonstiges'), minutes: unit.minutes, km: '', hr: '' }];
+    return parts;
+  }
+  function partsFromSections(sec, unitSport) {
+    if (!sec) return [];
+    const fb = unitSport && unitSport !== 'Kraft' ? unitSport : 'Sonstiges';
+    const raw = [];
+    ['warmup', 'main', 'cooldown', 'other'].forEach((k) => {
+      const t = sec[k];
+      if (!t) return;
+      const hm = t.match(/^(?:warm[\s-]?up|hauptteil|cool[\s-]?down)\s*\((\d+)\s*['’]?\s*\)\s*:?\s*/i);
+      const total = hm ? Number(hm[1]) : null;
+      let body = hm ? t.slice(hm[0].length) : t;
+      const secSport = sportOrNull(body.slice(0, 30)) || sportOf(body, fb);
+      const restSport = sportOrNull(body.slice(0, 30)) || fb;
+      // Intervall-Details entfernen: "darin 3×10' Z3 ... dazwischen", "3×15'", "dazwischen 3' locker", Klammern
+      let clean = body
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/,?\s*darin\b[^+]*?(?=\s\+\s|$)/gi, ' ')
+        .replace(/\bmit\s+(?:je\s+)?\d+\s*(?:['’]|min\b)[^,+]*?dazwischen/gi, ' ')
+        .replace(/\bdazwischen\s+\d+\s*(?:['’]|min\b)[^,.+]*/gi, ' ')
+        .replace(/\d+\s*[×x]\s*\d+(?:[.,]\d+)?\s*(?:['’]|min\b|s\b|m\b|km\b)?/g, ' ');
+      const segs = [];
+      const re = /(\d+)\s*(?:['’]|min\b)\s*([^,;+\n]*)/g;
+      let m;
+      while ((m = re.exec(clean)) !== null) {
+        const before = clean.slice(Math.max(0, m.index - 16), m.index);
+        let sp = sportOrNull(m[2]) || sportOrNull(before) || secSport;
+        if (sp === 'Rudern' && fb === 'Ergo' && !/boot|wasser/i.test(m[2])) sp = 'Ergo';
+        segs.push({ min: Number(m[1]), sport: sp });
+      }
+      const sum = segs.reduce((s, x) => s + x.min, 0);
+      if (segs.length && (total == null || sum === total)) segs.forEach((x) => raw.push(x));
+      else if (segs.length && total && sum < total) { raw.push({ min: total - sum, sport: restSport }); segs.forEach((x) => raw.push(x)); }
+      else if (total) raw.push({ min: total, sport: secSport });
+    });
+    // gleiche Sportarten zusammenfassen (Reihenfolge des ersten Auftretens)
+    const out = [];
+    const water = /boot|wasser|kleinboot/i.test(Object.values(sec).join(' '));
+    raw.forEach((x) => {
+      if (x.sport === 'Rudern' && fb === 'Ergo' && !water) x.sport = 'Ergo';
+      const ex = out.find((o) => o.sport === x.sport);
+      if (ex) ex.minutes += x.min; else out.push({ sport: x.sport, minutes: x.min, km: '', hr: '' });
+    });
+    return out;
+  }
+
   // ------------------------------------------------------------ Protokoll-Formular
-  const SPORTS = ['Rudern', 'Ergo', 'Rad/Spinning', 'Laufen', 'Schwimmen', 'Hallensport', 'Mobilität/Yoga', 'Sonstiges'];
 
   function lastWeight(ctx, name, beforeDate) {
     const logs = ctx.logs.filter((l) => l.date <= beforeDate && (l.weights || []).some((w) => w.name === name && w.kg != null))
@@ -711,8 +807,16 @@
       ersatz: log ? log.ersatz : false,
       rpe: log ? log.rpe : null,
       files: [],
-      hints: null
+      hints: null,
+      parts: null
     };
+    const emptyPart = () => ({ sport: '', minutes: '', km: '', hr: '' });
+    const clonePart = (p) => ({ sport: p.sport || '', minutes: p.minutes == null ? '' : p.minutes, km: p.km == null ? '' : p.km, hr: p.hr == null ? '' : p.hr });
+    if (log && log.parts && log.parts.length) st.parts = log.parts.map(clonePart);
+    else if (log && log.type !== 'kraft') st.parts = [clonePart({ sport: log.sport, minutes: log.minutes, km: log.km, hr: log.hr })];
+    else if (unit && unit.type !== 'kraft') st.parts = partsFromUnit(unit, false).map(clonePart);
+    else st.parts = [];
+    if (st.type !== 'kraft' && !st.parts.length) st.parts = [emptyPart()];
     const prevHints = log && log.hints ? log.hints : [];
     const hintList = () => {
       const src = unit ? (st.ersatz && unit.hintsErsatz && unit.hintsErsatz.length ? unit.hintsErsatz : unit.hints) : [];
@@ -765,11 +869,10 @@
       h += `<div class="formsec"><h3>${isKraft ? 'Kraft' : 'Ausdauer'}</h3>`;
       const minVal = log ? (log.minutes != null ? log.minutes : '') : (unit && unit.minutes ? unit.minutes : '');
       if (!isKraft) {
-        const sp = log && log.sport ? log.sport : unit && unit.sport && unit.sport !== 'Kraft' ? unit.sport : '';
-        h += `<label class="f">Sportart</label><select class="in" id="fsport"><option value="">–</option>${SPORTS.map((s) => `<option ${s === (st.ersatz && unit && unit.ersatz && !log ? 'Ergo' : sp) ? 'selected' : ''}>${s}</option>`).join('')}</select>
-          <div class="grid3"><div><label class="f">Minuten</label><input class="in" id="fmin" inputmode="numeric" value="${esc(minVal)}"></div>
-          <div><label class="f">Kilometer</label><input class="in" id="fkm" inputmode="decimal" value="${esc(log && log.km != null ? log.km : '')}"></div>
-          <div><label class="f">Puls Ø</label><input class="in" id="fhr" inputmode="numeric" value="${esc(log && log.hr != null ? log.hr : '')}"></div></div>`;
+        h += `<div class="faint" style="margin:2px 0 8px">Bestandteile der Einheit – aus dem Plan vorausgefüllt. Anpassen, löschen oder ergänzen.</div>
+          <div id="plist"></div>
+          <button type="button" class="btn ghost small" id="addpart">+ Bestandteil hinzufügen</button>
+          <div class="ptotal" id="ptotal"></div>`;
       } else {
         const ex = exList();
         h += `<label class="f">Minuten</label><input class="in" id="fmin" inputmode="numeric" value="${esc(minVal)}">`;
@@ -799,9 +902,9 @@
       const fdt = $('#fdate');
       if (fdt && !isExtra) fdt.onchange = () => { snapshot(); draw(); };
       const fe = $('#fersatz');
-      if (fe) fe.onchange = () => { snapshot(); st.ersatz = fe.checked; st.ersatzChanged = true; draw(); };
+      if (fe) fe.onchange = () => { snapshot(); st.ersatz = fe.checked; st.ersatzChanged = true; if (unit && st.type !== 'kraft') st.parts = partsFromUnit(unit, st.ersatz).map(clonePart); draw(); };
       const ft = $('#ftype');
-      if (ft) ft.onchange = () => { snapshot(); st.type = ft.value; draw(); };
+      if (ft) ft.onchange = () => { snapshot(); st.type = ft.value; if (st.type !== 'kraft' && !st.parts.length) st.parts = [emptyPart()]; draw(); };
       $$('[data-rpe]', body).forEach((b) => b.onclick = () => { st.rpe = st.rpe === Number(b.dataset.rpe) ? null : Number(b.dataset.rpe); $$('[data-rpe]', body).forEach((x) => x.classList.toggle('on', Number(x.dataset.rpe) === st.rpe)); });
       $('#ffile').onchange = async (e) => {
         const files = Array.from(e.target.files || []);
@@ -810,6 +913,10 @@
         }
         $('#fprev').innerHTML = st.files.map((f) => `<img src="${f.data}" alt="">`).join('');
       };
+      if (!isKraft) {
+        renderParts();
+        $('#addpart').onclick = () => { st.parts.push(emptyPart()); renderParts(); const sels = $$('[data-pf="sport"]', body); if (sels.length) sels[sels.length - 1].focus(); };
+      }
       const ax = $('#addex');
       if (ax) ax.onclick = () => {
         const name = prompt('Name der Übung');
@@ -819,6 +926,45 @@
         wl.insertAdjacentHTML('beforeend', `<div class="wrow"><div class="nm">${esc(name)}</div><input class="in" data-w="${i}" data-wname="${esc(name)}" inputmode="decimal" placeholder="kg"></div>`);
       };
       restore();
+    }
+    function partsTotal() {
+      let min = 0, km = 0, hasMin = false, hasKm = false, hrW = 0, hrSum = 0;
+      st.parts.forEach((p) => {
+        const m = parseFloat(String(p.minutes).replace(',', '.')), k = parseFloat(String(p.km).replace(',', '.')), hr = parseFloat(p.hr);
+        if (!isNaN(m)) { min += m; hasMin = true; }
+        if (!isNaN(k)) { km += k; hasKm = true; }
+        if (!isNaN(hr)) { const w = isNaN(m) || !m ? 1 : m; hrW += w; hrSum += hr * w; }
+      });
+      return { minutes: hasMin ? Math.round(min) : '', km: hasKm ? Math.round(km * 100) / 100 : '', hr: hrW ? Math.round(hrSum / hrW) : '' };
+    }
+    function updateTotal() {
+      const t = partsTotal(), el = $('#ptotal');
+      if (!el) return;
+      const plan = unit && unit.minutes ? ' · geplant ' + unit.minutes + ' min' : '';
+      el.innerHTML = `Gesamt: <b>${t.minutes !== '' ? t.minutes + ' min' : '–'}</b>${t.km !== '' ? ' · ' + fmtNum(t.km, 2) + ' km' : ''}${t.hr !== '' ? ' · HF Ø ' + t.hr : ''}<span class="faint">${plan}</span>`;
+    }
+    function renderParts() {
+      const list = $('#plist');
+      if (!list) return;
+      list.innerHTML = st.parts.map((p, i) => {
+        const opts = SPORTS.concat(p.sport && !SPORTS.includes(p.sport) ? [p.sport] : []);
+        return `<div class="part" data-p="${i}">
+          <div class="part-top"><select class="in" data-pf="sport" aria-label="Sportart"><option value="">Sportart wählen …</option>${opts.map((x) => `<option ${x === p.sport ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+          <button type="button" class="iconbtn" data-pdel="${i}" aria-label="Bestandteil entfernen">✕</button></div>
+          <div class="grid3"><label><span class="pl">Minuten</span><input class="in" data-pf="minutes" inputmode="numeric" value="${esc(p.minutes)}"></label>
+          <label><span class="pl">km</span><input class="in" data-pf="km" inputmode="decimal" value="${esc(p.km)}"></label>
+          <label><span class="pl">Puls Ø</span><input class="in" data-pf="hr" inputmode="numeric" value="${esc(p.hr)}"></label></div></div>`;
+      }).join('') || '<div class="faint">Noch kein Bestandteil.</div>';
+      $$('.part', list).forEach((row) => {
+        const i = Number(row.dataset.p);
+        $$('[data-pf]', row).forEach((el) => {
+          const f = el.dataset.pf;
+          const upd = () => { st.parts[i][f] = el.value; updateTotal(); };
+          el.addEventListener('input', upd); el.addEventListener('change', upd);
+        });
+      });
+      $$('[data-pdel]', list).forEach((b) => b.onclick = () => { st.parts.splice(Number(b.dataset.pdel), 1); renderParts(); });
+      updateTotal();
     }
     // Werte beim Neuzeichnen erhalten
     let snap = null;
@@ -855,6 +1001,11 @@
       const hl = hintList();
       const hints = hl.map((t, i) => ({ text: t, done: !!($(`[data-hint="${i}"]`, body) || {}).checked }));
       const weights = $$('[data-w]', body).map((el) => ({ name: el.dataset.wname, kg: el.value.trim() })).filter((w) => w.kg !== '');
+      const isK = st.type === 'kraft';
+      const parts = isK ? [] : st.parts.filter((p) => p.sport || String(p.minutes).trim() || String(p.km).trim() || String(p.hr).trim())
+        .map((p) => ({ sport: p.sport || 'Sonstiges', minutes: String(p.minutes).trim(), km: String(p.km).trim(), hr: String(p.hr).trim() }));
+      const tot = partsTotal();
+      const sportList = [...new Set(parts.map((p) => p.sport))];
       const payload = {
         id: log ? log.id : undefined,
         athlete: ctx.isCoach ? ctx.athlete.name : undefined,
@@ -863,12 +1014,13 @@
         unitKey: unit ? unit.key : (log ? log.unitKey : 'extra|' + Date.now()),
         title: isExtra ? (val('ftitle') || 'Zusatzeinheit') : title,
         type: st.type,
-        sport: st.type === 'kraft' ? 'Kraft' : val('fsport'),
+        sport: isK ? 'Kraft' : sportList.join(' + '),
         ersatz: st.ersatz,
         planMinutes: unit ? unit.minutes : (log ? log.planMinutes : ''),
-        minutes: val('fmin'),
-        km: val('fkm'),
-        hr: val('fhr'),
+        minutes: isK ? val('fmin') : tot.minutes,
+        km: isK ? '' : tot.km,
+        hr: isK ? '' : tot.hr,
+        parts,
         rpe: st.rpe,
         hints, weights,
         ergo: val('fergo'), split: val('fsplit'),
