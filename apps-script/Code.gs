@@ -331,15 +331,14 @@ function hallOfFame_() {
   var monday = Utilities.formatDate(new Date(now.getTime() - (dow - 1) * 86400000), tz, 'yyyy-MM-dd');
   var today = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
   var map = {};
-  access.forEach(function (a) { map[a.name] = { name: a.name, group: a.group, minutes: 0, week: 0, km: 0, sessions: 0 }; });
+  access.forEach(function (a) { map[a.name] = { name: a.name, group: a.group, minutes: 0, week: 0, sessions: 0, weekSessions: 0 }; });
   logs.forEach(function (l) {
     var m = map[l.athlete];
     if (!m || l.date < s.startDate || l.date > today) return;
     var min = l.minutes != null ? l.minutes : (l.planMinutes || 0);
     m.minutes += min;
-    m.km += l.km || 0;
     m.sessions += 1;
-    if (l.date >= monday) m.week += min;
+    if (l.date >= monday) { m.week += min; m.weekSessions += 1; }
   });
   return Object.keys(map).map(function (k) { return map[k]; });
 }
@@ -368,10 +367,12 @@ function saveLog_(user, log, files) {
       files.forEach(function (f, i) {
         var bytes = Utilities.base64Decode(String(f.data).replace(/^data:[^,]+,/, ''));
         var ext = /png/.test(f.mime) ? 'png' : 'jpg';
+        var part = String(f.part || '').slice(0, 30);
         var fname = log.date + '_' + athlete.name.replace(/\s+/g, '_') + '_' +
-          String(log.title || 'Einheit').replace(/[^\wäöüÄÖÜß\-]+/g, '_').slice(0, 40) + '_' + (stored.length + 1) + '.' + ext;
+          String(log.title || 'Einheit').replace(/[^\wäöüÄÖÜß\-]+/g, '_').slice(0, 40) +
+          (part ? '_' + part.replace(/[^\wäöüÄÖÜß\-]+/g, '_') : '') + '_' + (stored.length + 1) + '.' + ext;
         var file = folder.createFile(Utilities.newBlob(bytes, f.mime || 'image/jpeg', fname));
-        stored.push({ id: file.getId(), url: file.getUrl(), name: fname });
+        stored.push({ id: file.getId(), url: file.getUrl(), name: fname, part: part });
       });
     }
 
