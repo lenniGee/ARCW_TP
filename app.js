@@ -270,7 +270,7 @@
       status = `<div class="status"><div class="row"><span class="chip good">✓ Protokolliert${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span><span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}</div>
         ${opts.noLog ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>`;
     } else {
-      const past = unit.date < todayISO();
+      const past = unit.date <= dueUntil();
       status = opts.noLog ? '' : `<div class="status"><span class="${past ? 'chip warn' : 'faint'}">${past ? 'noch nicht protokolliert' : 'offen'}</span><button class="btn small" data-log="${esc(unit.key)}">Protokollieren</button></div>`;
     }
     return `<div class="card">
@@ -391,25 +391,30 @@
   }
 
   // ------------------------------------------------------------ Auswertung
+  // Tages-Deadline: Erst ab 21 Uhr zählt der heutige Tag als „fällig“ (Soll, offene Einheiten, Serie).
+  // Vorher zählen heutige Einheiten nur, wenn sie schon protokolliert sind.
+  const DEADLINE_HOUR = 21;
+  function dueUntil() { const t = todayISO(); return new Date().getHours() >= DEADLINE_HOUR ? t : addDays(t, -1); }
   function computeStats(ctx) {
     const start = ctx.settings.startDate;
     const today = todayISO();
     const units = ctx.plan.units.filter((u) => u.type !== 'rest' && u.date >= start);
-    const due = units.filter((u) => u.date <= today && !u.optional);
+    const deadline = dueUntil();
     const logs = ctx.logs.filter((l) => l.date >= start && l.date <= today).sort((a, b) => a.date.localeCompare(b.date));
     const logged = new Set(logs.map((l) => l.unitKey));
+    const due = units.filter((u) => !u.optional && (u.date <= deadline || (u.date === today && logged.has(u.key))));
     const plannedMin = due.reduce((s, u) => s + (u.minutes || 0), 0);
     const doneMin = logs.reduce((s, l) => s + logMinutes(l), 0);
-    const open = due.filter((u) => u.date < today && !logged.has(u.key));
+    const open = due.filter((u) => u.date <= deadline && !logged.has(u.key));
     const dueLogged = due.filter((u) => logged.has(u.key)).length;
     // Serie: Trainingstage in Folge, an denen alle geplanten Einheiten erledigt wurden (Ruhetage zählen nicht, heute erst wenn erledigt)
     const byDay = {};
-    due.forEach((u) => { (byDay[u.date] = byDay[u.date] || []).push(u); });
+    units.filter((u) => !u.optional && u.date <= today).forEach((u) => { (byDay[u.date] = byDay[u.date] || []).push(u); });
     let streak = 0, bestStreak = 0;
     Object.keys(byDay).sort().forEach((day) => {
       const done = byDay[day].every((u) => logged.has(u.key));
       if (done) { streak++; bestStreak = Math.max(bestStreak, streak); }
-      else if (day < today) streak = 0;
+      else if (day <= deadline) streak = 0;
     });
     const rpeLogs = logs.filter((l) => l.rpe);
     const ausd = logs.filter((l) => l.type === 'ausdauer');
@@ -440,7 +445,7 @@
       (weights[x.name] = weights[x.name] || []).push({ date: l.date, kg: x.kg });
     }));
     const weekStart = mondayOf(today);
-    const thisWeekPlanned = units.filter((u) => u.date >= weekStart && u.date <= today && !u.optional).reduce((s, u) => s + (u.minutes || 0), 0);
+    const thisWeekPlanned = due.filter((u) => u.date >= weekStart).reduce((s, u) => s + (u.minutes || 0), 0);
     const thisWeekDone = logs.filter((l) => l.date >= weekStart).reduce((s, l) => s + logMinutes(l), 0);
     const last7 = logs.filter((l) => l.date >= addDays(today, -6) && l.rpe);
     return {
@@ -539,7 +544,7 @@
     let html = '';
     html += `<div class="kpis">
       <div class="kpi"><div class="l">Trainingsminuten erreicht</div><div class="v">${pctTxt(st.pct)}</div><div class="s">${fmtMin(st.doneMin)} von ${fmtMin(st.plannedMin)}</div><div class="meter"><i style="width:${Math.min(100, (st.pct || 0) * 100)}%"></i></div></div>
-      <div class="kpi"><div class="l">Diese Woche</div><div class="v">${fmtMin(st.thisWeekDone)}</div><div class="s">von ${fmtMin(st.thisWeekPlanned)} bis heute geplant</div></div>
+      <div class="kpi"><div class="l">Diese Woche</div><div class="v">${fmtMin(st.thisWeekDone)}</div><div class="s">von ${fmtMin(st.thisWeekPlanned)} fällig (Tagesende 21 Uhr)</div></div>
       <div class="kpi"><div class="l">Einheiten protokolliert</div><div class="v">${st.dueLogged}/${st.due}</div><div class="s">${st.open.length ? st.open.length + ' offen' : 'alles eingetragen'}</div></div>
       <div class="kpi"><div class="l">Ø RPE</div><div class="v">${st.rpeAvg ? fmtNum(st.rpeAvg, 1) : '–'}</div><div class="s">letzte 7 Tage: ${st.rpe7 ? fmtNum(st.rpe7, 1) : '–'}</div></div>
       <div class="kpi"><div class="l">Vorgaben umgesetzt</div><div class="v">${st.hintsTotal ? st.hintsDone + '/' + st.hintsTotal : '–'}</div><div class="s">Intervalle & Tests</div></div>
