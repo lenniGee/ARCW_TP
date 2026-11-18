@@ -18,7 +18,7 @@ var TAB_SETTINGS = 'App-Einstellungen';
 var LOG_HEADERS = [
   'ID', 'Zeitstempel', 'Sportler', 'Gruppe', 'Plan-Blatt', 'Datum', 'Einheit-Key', 'Einheit', 'Typ',
   'Sportart', 'Ersatz', 'Plan-Minuten', 'Minuten', 'km', 'Puls', 'RPE', 'Vorgaben', 'Vorgaben erfüllt',
-  'Gewichte', 'Ergo-Belastung', 'Split', 'Kommentar', 'Screenshot', 'Screenshot-Links', 'Daten (JSON)', 'Plan-Datum'
+  'Gewichte', 'Ergo-Belastung', 'Split', 'Kommentar', 'Screenshot', 'Screenshot-Links', 'Daten (JSON)', 'Plan-Datum', 'Bestandteile'
 ];
 
 var ATHLETES = [
@@ -261,7 +261,8 @@ function readLogs_(filterName) {
       screenshot: r[22] === 'Ja',
       files: data.files || [],
       fileCount: (data.files || []).length,
-      planDate: r[25] instanceof Date ? dateFmt_()(r[25]) : String(r[25] || '')
+      planDate: r[25] instanceof Date ? dateFmt_()(r[25]) : String(r[25] || ''),
+      parts: data.parts || []
     });
   });
   return out;
@@ -375,6 +376,9 @@ function saveLog_(user, log, files) {
     }
 
     var hints = (log.hints || []).map(function (h) { return { text: String(h.text), done: !!h.done }; });
+    var parts = (log.parts || []).filter(function (p) { return p && (p.sport || p.minutes !== '' || p.km !== '' || p.hr !== ''); }).map(function (p) {
+      return { sport: String(p.sport || 'Sonstiges'), minutes: num_(p.minutes), km: num_(p.km), hr: num_(p.hr) };
+    });
     var weights = (log.weights || []).filter(function (w) { return w && w.name; }).map(function (w) {
       return { name: String(w.name), kg: w.kg === '' || w.kg == null ? null : Number(String(w.kg).replace(',', '.')), note: w.note || '' };
     });
@@ -404,8 +408,11 @@ function saveLog_(user, log, files) {
       log.comment || '',
       stored.length ? 'Ja' : 'Nein',
       stored.map(function (f) { return f.url; }).join('\n'),
-      JSON.stringify({ hints: hints, weights: weights, files: stored }),
-      log.planDate || ''
+      JSON.stringify({ hints: hints, weights: weights, files: stored, parts: parts }),
+      log.planDate || '',
+      parts.map(function (p) {
+        return p.sport + (p.minutes != null ? ' ' + p.minutes + ' min' : '') + (p.km != null ? ' / ' + p.km + ' km' : '') + (p.hr != null ? ' / HF ' + p.hr : '');
+      }).join('\n')
     ];
     ensureLogHeader_(sh);
     if (existing) {
@@ -426,8 +433,10 @@ function saveLog_(user, log, files) {
 function ensureLogHeader_(sh) {
   if (sh.getMaxColumns() < LOG_HEADERS.length) sh.insertColumnsAfter(sh.getMaxColumns(), LOG_HEADERS.length - sh.getMaxColumns());
   var h = sh.getRange(1, 1, 1, LOG_HEADERS.length).getValues()[0];
-  if (h[25] !== LOG_HEADERS[25]) {
-    sh.getRange(1, 26).setValue(LOG_HEADERS[25]).setFontWeight('bold').setBackground('#1a7f24').setFontColor('#ffffff');
+  for (var i = 25; i < LOG_HEADERS.length; i++) {
+    if (h[i] !== LOG_HEADERS[i]) {
+      sh.getRange(1, i + 1).setValue(LOG_HEADERS[i]).setFontWeight('bold').setBackground('#1a7f24').setFontColor('#ffffff');
+    }
   }
 }
 
