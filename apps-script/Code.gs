@@ -359,6 +359,13 @@ function saveLog_(user, log, files) {
       existing = readLogs_(athlete.name).filter(function (l) { return l.id === String(log.id); })[0];
       if (!existing) throw new Error('Eintrag nicht gefunden');
     }
+    // Sportler: nur bis zu BACKDAYS Tage rückwirkend eintragen/ändern (Trainer ausgenommen)
+    if (user.role !== 'coach') {
+      var minDate = minLogDate_();
+      if (String(log.date) < minDate) throw new Error('Einheiten können nur bis zu ' + BACKDAYS + ' Tage rückwirkend eingetragen werden.');
+      if (existing && existing.date < minDate) throw new Error('Dieser Eintrag ist älter als ' + BACKDAYS + ' Tage und kann nicht mehr geändert werden.');
+      if (String(log.date) > Utilities.formatDate(new Date(), 'Europe/Berlin', 'yyyy-MM-dd')) throw new Error('Das Datum liegt in der Zukunft.');
+    }
 
     // Screenshots speichern
     var stored = existing ? existing.files.slice() : [];
@@ -445,6 +452,11 @@ function ensureLogHeader_(sh) {
   }
 }
 
+var BACKDAYS = 3;
+function minLogDate_() {
+  return Utilities.formatDate(new Date(Date.now() - BACKDAYS * 86400000), 'Europe/Berlin', 'yyyy-MM-dd');
+}
+
 function deleteLog_(user, id) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -452,6 +464,7 @@ function deleteLog_(user, id) {
     var logs = readLogs_(user.role === 'coach' ? null : user.name);
     var l = logs.filter(function (x) { return x.id === String(id); })[0];
     if (!l) throw new Error('Eintrag nicht gefunden');
+    if (user.role !== 'coach' && l.date < minLogDate_()) throw new Error('Dieser Eintrag ist älter als ' + BACKDAYS + ' Tage und kann nicht mehr gelöscht werden.');
     logSheet_().deleteRow(l.row);
     return { deleted: id };
   } finally {
