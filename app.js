@@ -268,10 +268,13 @@
     if (logs.length) {
       const l = logs[0];
       status = `<div class="status"><div class="row"><span class="chip good">✓ Protokolliert${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span><span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}</div>
-        ${opts.noLog ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>`;
+        ${opts.noLog || !canLog(ctx, l.date) ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>`;
     } else {
-      const past = unit.date <= dueUntil();
-      status = opts.noLog ? '' : `<div class="status"><span class="${past ? 'chip warn' : 'faint'}">${past ? 'noch nicht protokolliert' : 'offen'}</span><button class="btn small" data-log="${esc(unit.key)}">Protokollieren</button></div>`;
+      const past = unit.date < todayISO();
+      const locked = !canLog(ctx, unit.date) && unit.date < todayISO();
+      status = opts.noLog ? '' : locked
+        ? `<div class="status"><span class="chip bad">nicht protokolliert</span><span class="faint">Nachtragen nur ${BACKDAYS} Tage rückwirkend</span></div>`
+        : `<div class="status"><span class="${past ? 'chip warn' : 'faint'}">${past ? 'noch nicht protokolliert' : 'offen'}</span><button class="btn small" data-log="${esc(unit.key)}">Protokollieren</button></div>`;
     }
     return `<div class="card">
       <div class="unit-head"><div class="grow"><div class="unit-title">${esc(unit.title)}</div><div class="unit-meta row">${meta ? esc(meta) : ''} ${zone} ${opt}</div></div>
@@ -338,12 +341,12 @@
       html += '<div class="sectiontitle"><h2>Weitere Einträge an diesem Tag</h2></div>';
       html += extra.map((l) => logCard(ctx, l, true)).join('');
     }
-    html += `<button class="btn secondary block mt" id="addextra">+ Zusatzeinheit eintragen</button>`;
+    if (canLog(ctx, S.date) && S.date <= todayISO()) html += `<button class="btn secondary block mt" id="addextra">+ Zusatzeinheit eintragen</button>`;
     html += installHint();
     app.innerHTML = html;
     bindDayNav();
     bindUnitButtons(app, ctx);
-    $('#addextra').onclick = () => openLogForm(ctx, null, null, S.date);
+    const ax = $('#addextra'); if (ax) ax.onclick = () => openLogForm(ctx, null, null, S.date);
     bindInstall();
   }
 
@@ -391,21 +394,20 @@
   }
 
   // ------------------------------------------------------------ Auswertung
-  // Tages-Deadline: Erst ab 21 Uhr zählt der heutige Tag als „fällig“ (Soll, offene Einheiten, Serie).
-  // Vorher zählen heutige Einheiten nur, wenn sie schon protokolliert sind.
-  const DEADLINE_HOUR = 21;
-  function dueUntil() { const t = todayISO(); return new Date().getHours() >= DEADLINE_HOUR ? t : addDays(t, -1); }
+  // Nachtragen nur bis zu 3 Tage rückwirkend (Trainer ausgenommen)
+  const BACKDAYS = 3;
+  function minLogDate() { return addDays(todayISO(), -BACKDAYS); }
+  function canLog(ctx, date) { return !!ctx.isCoach || date >= minLogDate(); }
   function computeStats(ctx) {
     const start = ctx.settings.startDate;
     const today = todayISO();
     const units = ctx.plan.units.filter((u) => u.type !== 'rest' && u.date >= start);
-    const deadline = dueUntil();
     const logs = ctx.logs.filter((l) => l.date >= start && l.date <= today).sort((a, b) => a.date.localeCompare(b.date));
     const logged = new Set(logs.map((l) => l.unitKey));
-    const due = units.filter((u) => !u.optional && (u.date <= deadline || (u.date === today && logged.has(u.key))));
+    const due = units.filter((u) => u.date <= today && !u.optional);
     const plannedMin = due.reduce((s, u) => s + (u.minutes || 0), 0);
     const doneMin = logs.reduce((s, l) => s + logMinutes(l), 0);
-    const open = due.filter((u) => u.date <= deadline && !logged.has(u.key));
+    const open = due.filter((u) => u.date < today && !logged.has(u.key));
     const dueLogged = due.filter((u) => logged.has(u.key)).length;
     // Serie: Trainingstage in Folge, an denen alle geplanten Einheiten erledigt wurden (Ruhetage zählen nicht, heute erst wenn erledigt)
     const byDay = {};
@@ -414,7 +416,7 @@
     Object.keys(byDay).sort().forEach((day) => {
       const done = byDay[day].every((u) => logged.has(u.key));
       if (done) { streak++; bestStreak = Math.max(bestStreak, streak); }
-      else if (day <= deadline) streak = 0;
+      else if (day < today) streak = 0;
     });
     const rpeLogs = logs.filter((l) => l.rpe);
     const ausd = logs.filter((l) => l.type === 'ausdauer');
@@ -544,7 +546,7 @@
     let html = '';
     html += `<div class="kpis">
       <div class="kpi"><div class="l">Trainingsminuten erreicht</div><div class="v">${pctTxt(st.pct)}</div><div class="s">${fmtMin(st.doneMin)} von ${fmtMin(st.plannedMin)}</div><div class="meter"><i style="width:${Math.min(100, (st.pct || 0) * 100)}%"></i></div></div>
-      <div class="kpi"><div class="l">Diese Woche</div><div class="v">${fmtMin(st.thisWeekDone)}</div><div class="s">von ${fmtMin(st.thisWeekPlanned)} fällig (Tagesende 21 Uhr)</div></div>
+      <div class="kpi"><div class="l">Diese Woche</div><div class="v">${fmtMin(st.thisWeekDone)}</div><div class="s">von ${fmtMin(st.thisWeekPlanned)} bis heute geplant</div></div>
       <div class="kpi"><div class="l">Einheiten protokolliert</div><div class="v">${st.dueLogged}/${st.due}</div><div class="s">${st.open.length ? st.open.length + ' offen' : 'alles eingetragen'}</div></div>
       <div class="kpi"><div class="l">Ø RPE</div><div class="v">${st.rpeAvg ? fmtNum(st.rpeAvg, 1) : '–'}</div><div class="s">letzte 7 Tage: ${st.rpe7 ? fmtNum(st.rpe7, 1) : '–'}</div></div>
       <div class="kpi"><div class="l">Vorgaben umgesetzt</div><div class="v">${st.hintsTotal ? st.hintsDone + '/' + st.hintsTotal : '–'}</div><div class="s">Intervalle & Tests</div></div>
@@ -566,7 +568,7 @@
     }
     if (st.open.length) {
       html += `<div class="card"><h2>Noch nicht protokolliert</h2><div class="faint">Geplante Einheiten in der Vergangenheit ohne Eintrag</div>
-        <div class="tablewrap"><table><tbody>${st.open.slice(-15).reverse().map((u) => `<tr><td>${fmtShort(u.date)}</td><td>${esc(u.title)}</td><td class="num">${u.minutes} min</td><td class="num"><button class="btn small secondary" data-log="${esc(u.key)}">Eintragen</button></td></tr>`).join('')}</tbody></table></div></div>`;
+        <div class="tablewrap"><table><tbody>${st.open.slice(-15).reverse().map((u) => `<tr><td>${fmtShort(u.date)}</td><td>${esc(u.title)}</td><td class="num">${u.minutes} min</td><td class="num">${canLog(ctx, u.date) ? `<button class="btn small secondary" data-log="${esc(u.key)}">Eintragen</button>` : '<span class="faint">verpasst</span>'}</td></tr>`).join('')}</tbody></table></div></div>`;
     }
     return html;
   }
@@ -594,7 +596,7 @@
     if (l.comment) lines.push('„' + l.comment + '“');
     const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Foto ${i + 1}${f.part ? ' · ' + esc(f.part) : ''}</a>`).join('')}</div>` : '';
     return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}${l.planDate && l.planDate !== l.date ? ' · geplant ' + fmtShort(l.planDate) : ''}</span></div>
-      <div class="row">${l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button></div></div>
+      <div class="row">${l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
       <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport && !pl ? ' · ' + esc(l.sport) : ''}</div>
       ${lines.length ? `<div class="logline">${esc(lines.join('\n'))}</div>` : ''}${files}</div>`;
   }
@@ -864,12 +866,13 @@
       if (isExtra) {
         h += `<div class="formsec"><h3>Einheit</h3>
           <label class="f">Bezeichnung</label><input class="in" id="ftitle" value="${esc(log ? log.title : '')}" placeholder="z. B. Lauf, Schwimmen, Kraft">
-          <div class="grid2"><div><label class="f">Datum</label><input class="in" type="date" id="fdate" value="${esc(d)}"></div>
+          <div class="grid2"><div><label class="f">Datum</label><input class="in" type="date" id="fdate" value="${esc(d)}" max="${todayISO()}" ${ctx.isCoach ? '' : `min="${minLogDate()}"`}></div>
           <div><label class="f">Art</label><select class="in" id="ftype"><option value="ausdauer" ${!isKraft ? 'selected' : ''}>Ausdauer</option><option value="kraft" ${isKraft ? 'selected' : ''}>Kraft</option></select></div></div></div>`;
       }
       if (!isExtra) {
         const moved = unit && snapDate() !== unit.date;
-        h += `<div class="formsec"><h3>Wann trainiert?</h3><label class="f">Durchgeführt am</label><input class="in" type="date" id="fdate" value="${esc(d)}" max="${todayISO()}">
+        h += `<div class="formsec"><h3>Wann trainiert?</h3><label class="f">Durchgeführt am</label><input class="in" type="date" id="fdate" value="${esc(d)}" max="${todayISO()}" ${ctx.isCoach ? '' : `min="${minLogDate()}"`}>
+          ${ctx.isCoach ? '' : `<div class="faint" style="margin-top:6px">Nachtragen ist bis ${fmtShort(minLogDate())} möglich (${BACKDAYS} Tage rückwirkend).</div>`}
           <div class="faint" style="margin-top:6px">Geplant für ${unit ? fmtLong(unit.date) : '–'}${moved ? ' – verschoben' : ''}</div></div>`;
       }
       if (unit && unit.ersatz) {
@@ -1058,6 +1061,8 @@
         comment: val('fcomment')
       };
       if (isExtra) payload.planMinutes = '';
+      if (!ctx.isCoach && payload.date < minLogDate()) { $('#merr').textContent = 'Einheiten können nur bis zu ' + BACKDAYS + ' Tage rückwirkend eingetragen werden (ab ' + fmtShort(minLogDate()) + ').'; return; }
+      if (payload.date > todayISO()) { $('#merr').textContent = 'Das Datum liegt in der Zukunft.'; return; }
       btn.disabled = true; btn.textContent = st.files.length ? (st.files.length > 1 ? 'Lädt ' + st.files.length + ' Bilder hoch …' : 'Lädt Bild hoch …') : 'Speichert …';
       try {
         await api('saveLog', { log: payload, files: st.files.map((f) => ({ data: f.data, mime: f.mime, part: f.part || '' })) });
