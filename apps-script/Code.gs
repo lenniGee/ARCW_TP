@@ -18,7 +18,7 @@ var TAB_SETTINGS = 'App-Einstellungen';
 var LOG_HEADERS = [
   'ID', 'Zeitstempel', 'Sportler', 'Gruppe', 'Plan-Blatt', 'Datum', 'Einheit-Key', 'Einheit', 'Typ',
   'Sportart', 'Ersatz', 'Plan-Minuten', 'Minuten', 'km', 'Puls', 'RPE', 'Vorgaben', 'Vorgaben erfüllt',
-  'Gewichte', 'Ergo-Belastung', 'Split', 'Kommentar', 'Screenshot', 'Screenshot-Links', 'Daten (JSON)', 'Plan-Datum', 'Bestandteile', 'Krank'
+  'Gewichte', 'Ergo-Belastung', 'Split', 'Kommentar', 'Screenshot', 'Screenshot-Links', 'Daten (JSON)', 'Plan-Datum', 'Bestandteile', 'Krank', 'Verhindert'
 ];
 
 var ATHLETES = [
@@ -263,7 +263,8 @@ function readLogs_(filterName) {
       fileCount: (data.files || []).length,
       planDate: r[25] instanceof Date ? dateFmt_()(r[25]) : String(r[25] || ''),
       parts: data.parts || [],
-      sick: !!data.sick || r[27] === 'Ja'
+      sick: !!data.sick || r[27] === 'Ja',
+      missed: !!data.missed || r[28] === 'Ja'
     });
   });
   return out;
@@ -335,7 +336,7 @@ function hallOfFame_() {
   access.forEach(function (a) { map[a.name] = { name: a.name, group: a.group, minutes: 0, week: 0, sessions: 0, weekSessions: 0 }; });
   logs.forEach(function (l) {
     var m = map[l.athlete];
-    if (!m || l.date < s.startDate || l.date > today) return;
+    if (!m || l.missed || l.date < s.startDate || l.date > today) return;
     var min = l.minutes != null ? l.minutes : (l.planMinutes || 0);
     m.minutes += min;
     m.sessions += 1;
@@ -385,7 +386,8 @@ function saveLog_(user, log, files) {
     }
 
     // Krank: 0 Minuten, keine Trainingsdaten
-    if (log.sick) { log.minutes = 0; log.km = ''; log.hr = ''; log.rpe = ''; log.parts = []; log.hints = []; log.weights = []; log.sport = 'Krank'; }
+    if (log.missed) log.sick = false;
+    if (log.sick || log.missed) { log.minutes = 0; log.km = ''; log.hr = ''; log.rpe = ''; log.parts = []; log.hints = []; log.weights = []; log.sport = log.sick ? 'Krank' : 'Verhindert'; }
     var hints = (log.hints || []).map(function (h) { return { text: String(h.text), done: !!h.done }; });
     var parts = (log.parts || []).filter(function (p) { return p && (p.sport || p.minutes !== '' || p.km !== '' || p.hr !== ''); }).map(function (p) {
       return { sport: String(p.sport || 'Sonstiges'), minutes: num_(p.minutes), km: num_(p.km), hr: num_(p.hr) };
@@ -421,12 +423,13 @@ function saveLog_(user, log, files) {
       log.comment || '',
       stored.length ? 'Ja' : 'Nein',
       stored.map(function (f) { return f.url; }).join('\n'),
-      JSON.stringify({ hints: hints, weights: weights, files: stored, parts: parts, sick: !!log.sick }),
+      JSON.stringify({ hints: hints, weights: weights, files: stored, parts: parts, sick: !!log.sick, missed: !!log.missed }),
       log.planDate || '',
       parts.map(function (p) {
         return p.sport + (p.minutes != null ? ' ' + p.minutes + ' min' : '') + (p.km != null ? ' / ' + p.km + ' km' : '') + (p.hr != null ? ' / HF ' + p.hr : '');
       }).join('\n'),
-      log.sick ? 'Ja' : ''
+      log.sick ? 'Ja' : '',
+      log.missed ? 'Ja' : ''
     ];
     ensureLogHeader_(sh);
     if (existing) {
