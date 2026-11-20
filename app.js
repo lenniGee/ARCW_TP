@@ -269,14 +269,14 @@
     let status;
     if (logs.length) {
       const l = logs[0];
-      status = `<div class="status"><div class="row">${l.sick ? '<span class="chip bad">Krank</span><span class="faint">0 min – gilt als protokolliert</span>' : l.missed ? `<span class="chip warn">Verhindert</span><span class="faint">0 min – zählt als nicht protokolliert${l.comment ? ' · ' + esc(l.comment) : ''}</span>` : `<span class="chip good">✓ Protokolliert${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span><span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}`}</div>
+      status = `<div class="status"><div class="row">${l.sick ? '<span class="chip bad">Krank</span><span class="faint">0 min – gilt als protokolliert</span>' : l.missed ? `<span class="chip warn">Verhindert</span><span class="faint">0 min – zählt als nicht protokolliert${l.comment ? ' · ' + esc(l.comment) : ''}</span>` : `<span class="chip good">✓ ${l.alt ? 'Alternativ' : 'Protokolliert'}${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span>${l.alt && l.sport ? `<span class="chip">${esc(l.sport)}</span>` : ''}<span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}`}</div>
         ${opts.noLog || !canLog(ctx, l.date) ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>`;
     } else {
       const past = unit.date < todayISO();
       const locked = !canLog(ctx, unit.date) && unit.date < todayISO();
       status = opts.noLog ? '' : locked
         ? `<div class="status"><span class="chip bad">nicht protokolliert</span><span class="faint">Nachtragen nur ${BACKDAYS} Tage rückwirkend</span></div>`
-        : `<div class="status"><span class="${past ? 'chip warn' : 'faint'}">${past ? 'noch nicht protokolliert' : 'offen'}</span><button class="btn small" data-log="${esc(unit.key)}">Protokollieren</button></div>`;
+        : `<div class="status"><span class="${past ? 'chip warn' : 'faint'}">${past ? 'noch nicht protokolliert' : 'offen'}</span><div class="row"><button class="btn small secondary" data-log="${esc(unit.key)}" data-alt="1">Alternativ</button><button class="btn small" data-log="${esc(unit.key)}">Protokollieren</button></div></div>`;
     }
     return `<div class="card">
       <div class="unit-head"><div class="grow"><div class="unit-title">${esc(unit.title)}</div><div class="unit-meta row">${meta ? esc(meta) : ''} ${zone} ${opt}</div></div>
@@ -293,7 +293,7 @@
     $$('[data-log]', root).forEach((b) => b.onclick = () => {
       const unit = ctx.plan.units.find((u) => u.key === b.dataset.log);
       const log = b.dataset.id ? ctx.logs.find((l) => l.id === b.dataset.id) : null;
-      openLogForm(ctx, unit, log);
+      openLogForm(ctx, unit, log, null, { alt: b.dataset.alt === '1' });
     });
     $$('[data-editlog]', root).forEach((b) => b.onclick = () => {
       const log = ctx.logs.find((l) => l.id === b.dataset.editlog);
@@ -636,7 +636,7 @@
     if (l.comment) lines.push('„' + l.comment + '“');
     const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Foto ${i + 1}${f.part ? ' · ' + esc(f.part) : ''}</a>`).join('')}</div>` : '';
     return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}${l.planDate && l.planDate !== l.date ? ' · geplant ' + fmtShort(l.planDate) : ''}</span></div>
-      <div class="row">${l.sick ? '<span class="chip bad">Krank</span>' : l.missed ? '<span class="chip warn">Verhindert</span>' : l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
+      <div class="row">${l.alt ? '<span class="chip">Alternativ</span>' : ''}${l.sick ? '<span class="chip bad">Krank</span>' : l.missed ? '<span class="chip warn">Verhindert</span>' : l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
       <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport && !pl ? ' · ' + esc(l.sport) : ''}</div>
       ${lines.length ? `<div class="logline">${esc(lines.join('\n'))}</div>` : ''}${files}</div>`;
   }
@@ -860,7 +860,8 @@
     return { kg: w.kg, date: logs[0].date };
   }
 
-  function openLogForm(ctx, unit, log, date) {
+  function openLogForm(ctx, unit, log, date, opts) {
+    opts = opts || {};
     const isExtra = !unit;
     const d = log ? log.date : unit ? (unit.date > todayISO() ? todayISO() : unit.date) : date;
     const type = log ? log.type : unit ? unit.type : 'ausdauer';
@@ -869,6 +870,7 @@
       ersatz: log ? log.ersatz : false,
       sick: log ? !!log.sick : false,
       missed: log ? !!log.missed : false,
+      alt: log ? !!log.alt : !!opts.alt,
       rpe: log ? log.rpe : null,
       files: [],
       hints: null,
@@ -878,17 +880,19 @@
     const clonePart = (p) => ({ sport: p.sport || '', minutes: p.minutes == null ? '' : p.minutes, km: p.km == null ? '' : p.km, hr: p.hr == null ? '' : p.hr });
     if (log && log.parts && log.parts.length) st.parts = log.parts.map(clonePart);
     else if (log && log.type !== 'kraft') st.parts = [clonePart({ sport: log.sport, minutes: log.minutes, km: log.km, hr: log.hr })];
-    else if (unit && unit.type !== 'kraft') st.parts = partsFromUnit(unit, false).map(clonePart);
+    else if (unit && unit.type !== 'kraft' && !st.alt) st.parts = partsFromUnit(unit, false).map(clonePart);
     else st.parts = [];
+    if (st.alt && !log) st.type = 'ausdauer';
     if (st.type !== 'kraft' && !st.parts.length) st.parts = [emptyPart()];
     const prevHints = log && log.hints ? log.hints : [];
     const hintList = () => {
+      if (st.alt) return [];
       const src = unit ? (st.ersatz && unit.hintsErsatz && unit.hintsErsatz.length ? unit.hintsErsatz : unit.hints) : [];
       const extraPrev = prevHints.filter((h) => !src.includes(h.text)).map((h) => h.text);
       return src.concat(log && !st.ersatzChanged ? extraPrev : []);
     };
     const exList = () => {
-      const ex = unit ? kraftExercises(ctx, unit) : { list: [] };
+      const ex = unit && !st.alt ? kraftExercises(ctx, unit) : { list: [] };
       let names = ex.list.filter((e) => e.weighted !== false && !/^ergo/i.test(e.block || '')).map((e) => ({ name: e.name, info: [e.sets && e.reps ? e.sets + '×' + e.reps : e.reps, e.material].filter(Boolean).join(' · ') }));
       if (log && log.weights) log.weights.forEach((w) => { if (!names.some((n) => n.name === w.name)) names.push({ name: w.name, info: '' }); });
       return names;
@@ -937,7 +941,13 @@
         restore();
         return;
       }
-      if (unit && unit.ersatz) {
+      if (unit) {
+        h += `<label class="check altbox"><input type="checkbox" id="falt" ${st.alt ? 'checked' : ''}><span><b>Alternatives Programm</b> – statt der geplanten Einheit etwas anderes gemacht (z. B. Laufen statt Rudern).</span></label>`;
+      }
+      if (st.alt) {
+        h += `<div class="formsec"><h3>Was hast du stattdessen gemacht?</h3><label class="f">Art</label><select class="in" id="ftype"><option value="ausdauer" ${!isKraft ? 'selected' : ''}>Ausdauer</option><option value="kraft" ${isKraft ? 'selected' : ''}>Kraft</option></select></div>`;
+      }
+      if (unit && unit.ersatz && !st.alt) {
         h += `<label class="check mt"><input type="checkbox" id="fersatz" ${st.ersatz ? 'checked' : ''}><span>Ersatz-Programm gemacht (Wasser ist ausgefallen)</span></label>`;
       }
       const hl = hintList();
@@ -950,7 +960,7 @@
       h += `<div class="formsec"><h3>${isKraft ? 'Kraft' : 'Ausdauer'}</h3>`;
       const minVal = log ? (log.minutes != null ? log.minutes : '') : (unit && unit.minutes ? unit.minutes : '');
       if (!isKraft) {
-        h += `<div class="faint" style="margin:2px 0 8px">Bestandteile der Einheit – aus dem Plan vorausgefüllt. Anpassen, löschen oder ergänzen.</div>
+        h += `<div class="faint" style="margin:2px 0 8px">${st.alt ? 'Trag ein, was du gemacht hast – mehrere Bestandteile möglich.' : 'Bestandteile der Einheit – aus dem Plan vorausgefüllt. Anpassen, löschen oder ergänzen.'}</div>
           <div id="plist"></div>
           <button type="button" class="btn ghost small" id="addpart">+ Bestandteil hinzufügen</button>
           <div class="ptotal" id="ptotal"></div>`;
@@ -987,6 +997,13 @@
       if (fs) fs.onchange = () => { snapshot(); st.sick = fs.checked; if (st.sick) st.missed = false; draw(); };
       const fm = $('#fmissed');
       if (fm) fm.onchange = () => { snapshot(); st.missed = fm.checked; if (st.missed) st.sick = false; draw(); };
+      const fa = $('#falt');
+      if (fa) fa.onchange = () => {
+        snapshot(); st.alt = fa.checked;
+        if (st.alt) { st.ersatz = false; st.type = 'ausdauer'; st.parts = [emptyPart()]; }
+        else { st.type = unit.type === 'rest' ? 'ausdauer' : unit.type; st.parts = unit.type !== 'kraft' ? partsFromUnit(unit, false).map(clonePart) : []; }
+        draw();
+      };
       const fe = $('#fersatz');
       if (fe) fe.onchange = () => { snapshot(); st.ersatz = fe.checked; st.ersatzChanged = true; if (unit && st.type !== 'kraft') st.parts = partsFromUnit(unit, st.ersatz).map(clonePart); draw(); };
       const ft = $('#ftype');
@@ -1115,7 +1132,8 @@
         title: isExtra ? (val('ftitle') || 'Zusatzeinheit') : title,
         type: st.type,
         sport: isK ? 'Kraft' : sportList.join(' + '),
-        ersatz: st.ersatz,
+        ersatz: st.alt ? false : st.ersatz,
+        alt: st.alt,
         planMinutes: unit ? unit.minutes : (log ? log.planMinutes : ''),
         minutes: isK ? val('fmin') : tot.minutes,
         km: isK ? '' : tot.km,

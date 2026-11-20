@@ -1,6 +1,6 @@
 // Service Worker: App-Hülle offline verfügbar, immer zuerst Netzwerk (damit Updates sofort ankommen)
-const CACHE = 'arcw-v12';
-const SHELL = ['./', 'index.html', 'styles.css?v=8', 'app.js?v=10', 'config.js?v=2', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/arcw-logo.png'];
+const CACHE = 'arcw-v13';
+const SHELL = ['./', 'index.html', 'styles.css?v=9', 'app.js?v=11', 'config.js?v=2', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/arcw-logo.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

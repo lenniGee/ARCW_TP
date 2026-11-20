@@ -258,3 +258,5 @@ input.in:focus, select.in:focus, textarea.in:focus { outline: 2px solid var(--ac
 .check.sickbox input { accent-color: var(--bad); }
 .check.missbox { border-color: var(--warn-soft); }
 .check.missbox input { accent-color: var(--warn); }
+.check.altbox { border-color: var(--accent-soft); }
+.check.altbox input { accent-color: var(--accent); }
