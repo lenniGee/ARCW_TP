@@ -96,7 +96,7 @@
   }
 
   function logsForUnit(ctx, unit) { return ctx.logs.filter((l) => l.unitKey === unit.key); }
-  function logMinutes(l) { return l.minutes != null ? l.minutes : (l.planMinutes || 0); }
+  function logMinutes(l) { if (l.sick) return 0; return l.minutes != null ? l.minutes : (l.planMinutes || 0); }
 
   // ------------------------------------------------------------ Laden
   async function loadAll(silent) {
@@ -246,6 +246,7 @@
   }
 
   function logSummary(l) {
+    if (l.sick) return 'Krank · 0 min';
     const bits = [];
     bits.push(fmtMin(logMinutes(l)));
     if (l.km) bits.push(fmtNum(l.km, 1) + ' km');
@@ -267,7 +268,7 @@
     let status;
     if (logs.length) {
       const l = logs[0];
-      status = `<div class="status"><div class="row"><span class="chip good">✓ Protokolliert${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span><span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}</div>
+      status = `<div class="status"><div class="row">${l.sick ? '<span class="chip bad">Krank</span><span class="faint">0 min – gilt als protokolliert</span>' : `<span class="chip good">✓ Protokolliert${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span><span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}`}</div>
         ${opts.noLog || !canLog(ctx, l.date) ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>`;
     } else {
       const past = unit.date < todayISO();
@@ -341,12 +342,30 @@
       html += '<div class="sectiontitle"><h2>Weitere Einträge an diesem Tag</h2></div>';
       html += extra.map((l) => logCard(ctx, l, true)).join('');
     }
+    const openToday = units.filter((u) => u.type !== 'rest' && !logsForUnit(ctx, u).length);
+    if (canLog(ctx, S.date) && S.date <= todayISO() && openToday.length) html += `<button class="btn danger block mt" id="sickday">Krank melden (${openToday.length === 1 ? 'Einheit' : 'alle ' + openToday.length + ' Einheiten'} an diesem Tag)</button>`;
     if (canLog(ctx, S.date) && S.date <= todayISO()) html += `<button class="btn secondary block mt" id="addextra">+ Zusatzeinheit eintragen</button>`;
     html += installHint();
     app.innerHTML = html;
     bindDayNav();
     bindUnitButtons(app, ctx);
     const ax = $('#addextra'); if (ax) ax.onclick = () => openLogForm(ctx, null, null, S.date);
+    const sd = $('#sickday');
+    if (sd) sd.onclick = async () => {
+      if (!confirm('Für ' + fmtLong(S.date) + ' krank melden? ' + openToday.length + ' Einheit(en) werden mit 0 Minuten als protokolliert eingetragen.')) return;
+      sd.disabled = true; sd.textContent = 'Speichert …';
+      try {
+        for (const u of openToday) {
+          await api('saveLog', { log: {
+            athlete: ctx.isCoach ? ctx.athlete.name : undefined, date: S.date, planDate: u.date, unitKey: u.key, title: u.title,
+            type: u.type, sport: '', ersatz: false, planMinutes: u.minutes, minutes: 0, km: '', hr: '', parts: [], rpe: null,
+            hints: [], weights: [], ergo: '', split: '', comment: '', sick: true
+          }, files: [] });
+        }
+        toast('Krank gemeldet – gute Besserung!');
+        await reloadData();
+      } catch (e) { toast(e.message); sd.disabled = false; }
+    };
     bindInstall();
   }
 
@@ -404,8 +423,11 @@
     const units = ctx.plan.units.filter((u) => u.type !== 'rest' && u.date >= start);
     const logs = ctx.logs.filter((l) => l.date >= start && l.date <= today).sort((a, b) => a.date.localeCompare(b.date));
     const logged = new Set(logs.map((l) => l.unitKey));
+    // Krank gemeldete Einheiten: gelten als protokolliert, zählen aber nicht zum Minuten-Soll
+    const sickKeys = new Set(logs.filter((l) => l.sick).map((l) => l.unitKey));
+    const sickDays = new Set(logs.filter((l) => l.sick).map((l) => l.date)).size;
     const due = units.filter((u) => u.date <= today && !u.optional);
-    const plannedMin = due.reduce((s, u) => s + (u.minutes || 0), 0);
+    const plannedMin = due.filter((u) => !sickKeys.has(u.key)).reduce((s, u) => s + (u.minutes || 0), 0);
     const doneMin = logs.reduce((s, l) => s + logMinutes(l), 0);
     const open = due.filter((u) => u.date < today && !logged.has(u.key));
     const dueLogged = due.filter((u) => logged.has(u.key)).length;
@@ -419,7 +441,7 @@
       else if (day < today) streak = 0;
     });
     const rpeLogs = logs.filter((l) => l.rpe);
-    const ausd = logs.filter((l) => l.type === 'ausdauer');
+    const ausd = logs.filter((l) => l.type === 'ausdauer' && !l.sick);
     const shots = ausd.filter((l) => l.screenshot).length;
     let hintsTotal = 0, hintsDone = 0;
     logs.forEach((l) => (l.hints || []).forEach((h) => { hintsTotal++; if (h.done) hintsDone++; }));
@@ -429,7 +451,7 @@
     const lastW = mondayOf(today);
     while (w <= lastW) {
       const we = addDays(w, 6);
-      const p = units.filter((u) => u.date >= w && u.date <= we && !u.optional && u.date >= start).reduce((s, u) => s + (u.minutes || 0), 0);
+      const p = units.filter((u) => u.date >= w && u.date <= we && !u.optional && u.date >= start && !sickKeys.has(u.key)).reduce((s, u) => s + (u.minutes || 0), 0);
       const d = logs.filter((l) => l.date >= w && l.date <= we).reduce((s, l) => s + logMinutes(l), 0);
       const r = logs.filter((l) => l.date >= w && l.date <= we && l.rpe);
       weeks.push({ start: w, planned: p, done: d, rpe: r.length ? r.reduce((s, l) => s + l.rpe, 0) / r.length : null });
@@ -437,6 +459,7 @@
     }
     const sports = {};
     logs.forEach((l) => {
+      if (l.sick) return;
       const ps = logParts(l);
       if (!ps.length) { const k = l.type === 'kraft' ? 'Kraft' : (l.sport || 'Sonstiges'); sports[k] = sports[k] || { min: 0, km: 0, n: 0 }; sports[k].min += logMinutes(l); sports[k].n++; return; }
       ps.forEach((p) => { const k = p.sport || 'Sonstiges'; sports[k] = sports[k] || { min: 0, km: 0, n: 0 }; sports[k].min += Number(String(p.minutes).replace(',', '.')) || 0; sports[k].km += Number(String(p.km).replace(',', '.')) || 0; sports[k].n++; });
@@ -447,7 +470,7 @@
       (weights[x.name] = weights[x.name] || []).push({ date: l.date, kg: x.kg });
     }));
     const weekStart = mondayOf(today);
-    const thisWeekPlanned = due.filter((u) => u.date >= weekStart).reduce((s, u) => s + (u.minutes || 0), 0);
+    const thisWeekPlanned = due.filter((u) => u.date >= weekStart && !sickKeys.has(u.key)).reduce((s, u) => s + (u.minutes || 0), 0);
     const thisWeekDone = logs.filter((l) => l.date >= weekStart).reduce((s, l) => s + logMinutes(l), 0);
     const last7 = logs.filter((l) => l.date >= addDays(today, -6) && l.rpe);
     return {
@@ -455,7 +478,7 @@
       rpeAvg: rpeLogs.length ? rpeLogs.reduce((s, l) => s + l.rpe, 0) / rpeLogs.length : null,
       rpe7: last7.length ? last7.reduce((s, l) => s + l.rpe, 0) / last7.length : null,
       shots, ausd: ausd.length, hintsTotal, hintsDone, weeks, sports, weights, logs,
-      streak, bestStreak,
+      streak, bestStreak, sickDays,
       thisWeekPlanned, thisWeekDone, lastLog: logs.length ? logs[logs.length - 1].date : null,
       km: logs.reduce((s, l) => s + (l.km || 0), 0)
     };
@@ -507,7 +530,12 @@
   }
 
   function rpeChart(logs) {
-    const pts = logs.filter((l) => l.rpe);
+    const pts = [], sickSeen = {};
+    logs.forEach((l) => {
+      if (l.sick) { if (!sickSeen[l.date]) { sickSeen[l.date] = true; pts.push({ date: l.date, title: 'Krank', rpe: 1, sick: true }); } }
+      else if (l.rpe) pts.push(l);
+    });
+    const anySick = pts.some((p) => p.sick);
     if (pts.length < 2) return '<div class="faint">Sobald mehrere Einheiten mit RPE eingetragen sind, erscheint hier der Verlauf.</div>';
     const W = chartW(), H = 150, padL = 28, padB = 22, padT = 10;
     const n = pts.length;
@@ -516,9 +544,9 @@
     let g = '';
     [1, 4, 7, 10].forEach((v) => g += `<line x1="${padL}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${padL - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`);
     const path = pts.map((p, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(p.rpe).toFixed(1)).join(' ');
-    const dots = pts.map((p, i) => `<g class="hov" data-tip="${esc(fmtShort(p.date) + '\n' + p.title + '\nRPE ' + p.rpe)}"><circle cx="${x(i)}" cy="${y(p.rpe)}" r="10" fill="transparent"/><circle cx="${x(i)}" cy="${y(p.rpe)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></g>`).join('');
+    const dots = pts.map((p, i) => `<g class="hov" data-tip="${esc(fmtShort(p.date) + '\n' + (p.sick ? 'Krank' : p.title + '\nRPE ' + p.rpe))}"><circle cx="${x(i)}" cy="${y(p.rpe)}" r="10" fill="transparent"/><circle cx="${x(i)}" cy="${y(p.rpe)}" r="${p.sick ? 5 : 4}" fill="${p.sick ? 'var(--bad)' : 'var(--accent)'}" stroke="var(--surface)" stroke-width="2"/></g>`).join('');
     const first = pts[0].date, last = pts[n - 1].date;
-    return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="RPE-Verlauf">${g}<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}
+    return `${anySick ? '<div class="legend"><span><i style="background:var(--accent)"></i>RPE</span><span><i style="background:var(--bad)"></i>Krank (1)</span></div>' : ''}<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="RPE-Verlauf">${g}<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}
       <text x="${padL}" y="${H - 5}">${fmtShort(first)}</text><text x="${W - 4}" y="${H - 5}" text-anchor="end">${fmtShort(last)}</text></svg>`;
   }
 
@@ -596,7 +624,7 @@
     if (l.comment) lines.push('„' + l.comment + '“');
     const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Foto ${i + 1}${f.part ? ' · ' + esc(f.part) : ''}</a>`).join('')}</div>` : '';
     return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}${l.planDate && l.planDate !== l.date ? ' · geplant ' + fmtShort(l.planDate) : ''}</span></div>
-      <div class="row">${l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
+      <div class="row">${l.sick ? '<span class="chip bad">Krank</span>' : l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
       <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport && !pl ? ' · ' + esc(l.sport) : ''}</div>
       ${lines.length ? `<div class="logline">${esc(lines.join('\n'))}</div>` : ''}${files}</div>`;
   }
@@ -668,8 +696,9 @@
       });
       html += '<div class="chips">' + ath.map((a) => {
         const done = real.filter((u) => C.logs.some((l) => l.athlete === a.name && l.unitKey === u.key)).length;
-        const cls = !real.length ? '' : done === real.length ? 'good' : done ? 'warn' : '';
-        const label = real.length ? ` ${done}/${real.length}` : '';
+        const sick = real.some((u) => C.logs.some((l) => l.athlete === a.name && l.unitKey === u.key && l.sick));
+        const cls = !real.length ? '' : sick ? 'bad' : done === real.length ? 'good' : done ? 'warn' : '';
+        const label = sick ? ' krank' : real.length ? ` ${done}/${real.length}` : '';
         return `<span class="chip ${cls}" data-ath="${esc(a.name)}">${esc(a.name)}${label}</span>`;
       }).join('') + '</div></div>';
     });
@@ -696,12 +725,13 @@
       <div class="seg"><button data-s="group" class="${sortKey === 'group' ? 'active' : ''}">Gruppe</button><button data-s="name" class="${sortKey === 'name' ? 'active' : ''}">Name</button><button data-s="pct" class="${sortKey === 'pct' ? 'active' : ''}">Erreicht</button></div></div>
       <p class="faint" style="margin-top:-4px">Seit ${fmtShort(C.settings.startDate)} bis heute · Team: ${fmtMin(sum.d)} von ${fmtMin(sum.p)} (${pctTxt(sum.p ? sum.d / sum.p : null)})</p>
       <div class="card" style="padding:6px 10px"><div class="tablewrap"><table>
-      <thead><tr><th>Sportler</th><th class="num">Erreicht</th><th class="num">Ist / Soll</th><th class="num">Woche</th><th class="num">Offen</th><th class="num">Ø RPE 7T</th><th class="num">Screens</th><th>Letzter Eintrag</th></tr></thead>
+      <thead><tr><th>Sportler</th><th class="num">Erreicht</th><th class="num">Ist / Soll</th><th class="num">Woche</th><th class="num">Offen</th><th class="num">Ø RPE 7T</th><th class="num">Krank</th><th class="num">Screens</th><th>Letzter Eintrag</th></tr></thead>
       <tbody>${rows.map(({ a, st }) => `<tr class="click" data-ath="${esc(a.name)}"><td><b>${esc(a.name)}</b><div class="faint">${esc(a.plan)}</div></td>
         <td class="num">${pctChip(st.pct)}</td><td class="num">${fmtNum(st.doneMin)} / ${fmtNum(st.plannedMin)}</td>
         <td class="num">${fmtNum(st.thisWeekDone)} / ${fmtNum(st.thisWeekPlanned)}</td>
         <td class="num">${st.open.length ? `<span class="chip warn">${st.open.length}</span>` : '0'}</td>
         <td class="num">${st.rpe7 ? fmtNum(st.rpe7, 1) : '–'}</td>
+        <td class="num">${st.sickDays ? `<span class="chip bad">${st.sickDays} T</span>` : '–'}</td>
         <td class="num">${st.ausd ? st.shots + '/' + st.ausd : '–'}</td>
         <td>${st.lastLog ? fmtShort(st.lastLog) : '<span class="faint">–</span>'}</td></tr>`).join('')}</tbody></table></div></div>
       <button class="btn secondary block mt" id="reload">Plan & Daten neu laden</button>`;
@@ -823,6 +853,7 @@
     const st = {
       type: type === 'rest' ? 'ausdauer' : type,
       ersatz: log ? log.ersatz : false,
+      sick: log ? !!log.sick : false,
       rpe: log ? log.rpe : null,
       files: [],
       hints: null,
@@ -875,6 +906,18 @@
           ${ctx.isCoach ? '' : `<div class="faint" style="margin-top:6px">Nachtragen ist bis ${fmtShort(minLogDate())} möglich (${BACKDAYS} Tage rückwirkend).</div>`}
           <div class="faint" style="margin-top:6px">Geplant für ${unit ? fmtLong(unit.date) : '–'}${moved ? ' – verschoben' : ''}</div></div>`;
       }
+      if (unit) {
+        h += `<label class="check mt sickbox"><input type="checkbox" id="fsick" ${st.sick ? 'checked' : ''}><span><b>Krank</b> – konnte wegen Krankheit nicht trainieren. Zählt als protokolliert, mit 0 Minuten.</span></label>`;
+      }
+      if (st.sick) {
+        h += `<div class="formsec"><h3>Krankheitsverlauf</h3><div class="faint" style="margin:2px 0 8px">Optional – hilft beim Wiedereinstieg.</div><textarea class="in" id="fcomment" placeholder="Wie geht's dir? Symptome, Fieber, Arztbesuch …">${esc(log ? log.comment : '')}</textarea></div>`;
+        body.innerHTML = h;
+        const fdt2 = $('#fdate');
+        if (fdt2 && !isExtra) fdt2.onchange = () => { snapshot(); draw(); };
+        $('#fsick').onchange = () => { snapshot(); st.sick = $('#fsick').checked; draw(); };
+        restore();
+        return;
+      }
       if (unit && unit.ersatz) {
         h += `<label class="check mt"><input type="checkbox" id="fersatz" ${st.ersatz ? 'checked' : ''}><span>Ersatz-Programm gemacht (Wasser ist ausgefallen)</span></label>`;
       }
@@ -921,6 +964,8 @@
       // Events
       const fdt = $('#fdate');
       if (fdt && !isExtra) fdt.onchange = () => { snapshot(); draw(); };
+      const fs = $('#fsick');
+      if (fs) fs.onchange = () => { snapshot(); st.sick = fs.checked; draw(); };
       const fe = $('#fersatz');
       if (fe) fe.onchange = () => { snapshot(); st.ersatz = fe.checked; st.ersatzChanged = true; if (unit && st.type !== 'kraft') st.parts = partsFromUnit(unit, st.ersatz).map(clonePart); draw(); };
       const ft = $('#ftype');
@@ -1061,6 +1106,10 @@
         comment: val('fcomment')
       };
       if (isExtra) payload.planMinutes = '';
+      if (st.sick) {
+        Object.assign(payload, { sick: true, sport: '', ersatz: false, minutes: 0, km: '', hr: '', parts: [], rpe: null, hints: [], weights: [], ergo: '', split: '' });
+        st.files = [];
+      }
       if (!ctx.isCoach && payload.date < minLogDate()) { $('#merr').textContent = 'Einheiten können nur bis zu ' + BACKDAYS + ' Tage rückwirkend eingetragen werden (ab ' + fmtShort(minLogDate()) + ').'; return; }
       if (payload.date > todayISO()) { $('#merr').textContent = 'Das Datum liegt in der Zukunft.'; return; }
       btn.disabled = true; btn.textContent = st.files.length ? (st.files.length > 1 ? 'Lädt ' + st.files.length + ' Bilder hoch …' : 'Lädt Bild hoch …') : 'Speichert …';
