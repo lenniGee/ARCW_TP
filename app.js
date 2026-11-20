@@ -423,11 +423,10 @@
     const units = ctx.plan.units.filter((u) => u.type !== 'rest' && u.date >= start);
     const logs = ctx.logs.filter((l) => l.date >= start && l.date <= today).sort((a, b) => a.date.localeCompare(b.date));
     const logged = new Set(logs.map((l) => l.unitKey));
-    // Krank gemeldete Einheiten: gelten als protokolliert, zählen aber nicht zum Minuten-Soll
-    const sickKeys = new Set(logs.filter((l) => l.sick).map((l) => l.unitKey));
+    // Krank gemeldete Einheiten: gelten als protokolliert (0 min), bleiben aber im Minuten-Soll
     const sickDays = new Set(logs.filter((l) => l.sick).map((l) => l.date)).size;
     const due = units.filter((u) => u.date <= today && !u.optional);
-    const plannedMin = due.filter((u) => !sickKeys.has(u.key)).reduce((s, u) => s + (u.minutes || 0), 0);
+    const plannedMin = due.reduce((s, u) => s + (u.minutes || 0), 0);
     const doneMin = logs.reduce((s, l) => s + logMinutes(l), 0);
     const open = due.filter((u) => u.date < today && !logged.has(u.key));
     const dueLogged = due.filter((u) => logged.has(u.key)).length;
@@ -451,7 +450,7 @@
     const lastW = mondayOf(today);
     while (w <= lastW) {
       const we = addDays(w, 6);
-      const p = units.filter((u) => u.date >= w && u.date <= we && !u.optional && u.date >= start && !sickKeys.has(u.key)).reduce((s, u) => s + (u.minutes || 0), 0);
+      const p = units.filter((u) => u.date >= w && u.date <= we && !u.optional && u.date >= start).reduce((s, u) => s + (u.minutes || 0), 0);
       const d = logs.filter((l) => l.date >= w && l.date <= we).reduce((s, l) => s + logMinutes(l), 0);
       const r = logs.filter((l) => l.date >= w && l.date <= we && l.rpe);
       weeks.push({ start: w, planned: p, done: d, rpe: r.length ? r.reduce((s, l) => s + l.rpe, 0) / r.length : null });
@@ -470,7 +469,7 @@
       (weights[x.name] = weights[x.name] || []).push({ date: l.date, kg: x.kg });
     }));
     const weekStart = mondayOf(today);
-    const thisWeekPlanned = due.filter((u) => u.date >= weekStart && !sickKeys.has(u.key)).reduce((s, u) => s + (u.minutes || 0), 0);
+    const thisWeekPlanned = due.filter((u) => u.date >= weekStart).reduce((s, u) => s + (u.minutes || 0), 0);
     const thisWeekDone = logs.filter((l) => l.date >= weekStart).reduce((s, l) => s + logMinutes(l), 0);
     const last7 = logs.filter((l) => l.date >= addDays(today, -6) && l.rpe);
     return {
