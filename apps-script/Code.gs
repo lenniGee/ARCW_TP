@@ -326,7 +326,7 @@ function hallOfFame_() {
   var s = settings_();
   var access = readAccess_().filter(function (u) { return u.role === 'athlete'; });
   var logs = readLogs_(null);
-  var tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  var tz = 'Europe/Berlin'; // „heute“ und Wochenbeginn immer in Berliner Zeit
   var now = new Date();
   var dow = Number(Utilities.formatDate(now, tz, 'u')); // 1 = Montag
   var monday = Utilities.formatDate(new Date(now.getTime() - (dow - 1) * 86400000), tz, 'yyyy-MM-dd');
