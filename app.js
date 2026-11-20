@@ -269,7 +269,7 @@
     let status;
     if (logs.length) {
       const l = logs[0];
-      status = `<div class="status"><div class="row">${l.sick ? '<span class="chip bad">Krank</span><span class="faint">0 min – gilt als protokolliert</span>' : l.missed ? `<span class="chip warn">Verhindert</span><span class="faint">0 min – zählt als nicht protokolliert${l.comment ? ' · ' + esc(l.comment) : ''}</span>` : `<span class="chip good">✓ ${l.alt ? 'Alternativ' : 'Protokolliert'}${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span>${l.alt && l.sport ? `<span class="chip">${esc(l.sport)}</span>` : ''}<span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}`}</div>
+      status = `<div class="status"><div class="row">${l.sick ? '<span class="chip warn">Krank</span><span class="faint">0 min – gilt als protokolliert</span>' : l.missed ? `<span class="chip bad">Verhindert</span><span class="faint">0 min – zählt als nicht protokolliert${l.comment ? ' · ' + esc(l.comment) : ''}</span>` : `<span class="chip good">✓ ${l.alt ? 'Alternativ' : 'Protokolliert'}${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span>${l.alt && l.sport ? `<span class="chip">${esc(l.sport)}</span>` : ''}<span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}`}</div>
         ${opts.noLog || !canLog(ctx, l.date) ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>`;
     } else {
       const past = unit.date < todayISO();
@@ -344,8 +344,8 @@
       html += extra.map((l) => logCard(ctx, l, true)).join('');
     }
     const openToday = units.filter((u) => u.type !== 'rest' && !logsForUnit(ctx, u).length);
-    if (canLog(ctx, S.date) && S.date <= todayISO() && openToday.length) html += `<button class="btn danger block mt" id="sickday">Krank melden (${openToday.length === 1 ? 'Einheit' : 'alle ' + openToday.length + ' Einheiten'} an diesem Tag)</button>`;
-    if (canLog(ctx, S.date) && S.date <= todayISO() && openToday.length) html += `<button class="btn secondary block mt" id="missday">Verhindert (${openToday.length === 1 ? 'Einheit' : 'alle ' + openToday.length + ' Einheiten'} an diesem Tag)</button>`;
+    if (canLog(ctx, S.date) && S.date <= todayISO() && openToday.length) html += `<button class="btn warnbtn block mt" id="sickday">Krank melden (${openToday.length === 1 ? 'Einheit' : 'alle ' + openToday.length + ' Einheiten'} an diesem Tag)</button>`;
+    if (canLog(ctx, S.date) && S.date <= todayISO() && openToday.length) html += `<button class="btn danger block mt" id="missday">Verhindert (${openToday.length === 1 ? 'Einheit' : 'alle ' + openToday.length + ' Einheiten'} an diesem Tag)</button>`;
     if (canLog(ctx, S.date) && S.date <= todayISO()) html += `<button class="btn secondary block mt" id="addextra">+ Zusatzeinheit eintragen</button>`;
     html += installHint();
     app.innerHTML = html;
@@ -541,13 +541,15 @@
   }
 
   function rpeChart(logs) {
-    const pts = [], sickSeen = {};
+    // Krank (gelb) und Verhindert (rot) als Punkt bei 1 – fließen nicht in Durchschnitte ein
+    const pts = [], seen = {};
     logs.forEach((l) => {
-      if (l.missed) return;
-      if (l.sick) { if (!sickSeen[l.date]) { sickSeen[l.date] = true; pts.push({ date: l.date, title: 'Krank', rpe: 1, sick: true }); } }
+      const kind = l.sick ? 'sick' : l.missed ? 'missed' : null;
+      if (kind) { const k = kind + l.date; if (!seen[k]) { seen[k] = true; pts.push({ date: l.date, title: kind === 'sick' ? 'Krank' : 'Verhindert', rpe: 1, kind }); } }
       else if (l.rpe) pts.push(l);
     });
-    const anySick = pts.some((p) => p.sick);
+    const anySick = pts.some((p) => p.kind === 'sick'), anyMissed = pts.some((p) => p.kind === 'missed');
+    const dotColor = (p) => p.kind === 'sick' ? 'var(--warn)' : p.kind === 'missed' ? 'var(--bad)' : 'var(--accent)';
     if (pts.length < 2) return '<div class="faint">Sobald mehrere Einheiten mit RPE eingetragen sind, erscheint hier der Verlauf.</div>';
     const W = chartW(), H = 150, padL = 28, padB = 22, padT = 10;
     const n = pts.length;
@@ -556,9 +558,9 @@
     let g = '';
     [1, 4, 7, 10].forEach((v) => g += `<line x1="${padL}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${padL - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`);
     const path = pts.map((p, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(p.rpe).toFixed(1)).join(' ');
-    const dots = pts.map((p, i) => `<g class="hov" data-tip="${esc(fmtShort(p.date) + '\n' + (p.sick ? 'Krank' : p.title + '\nRPE ' + p.rpe))}"><circle cx="${x(i)}" cy="${y(p.rpe)}" r="10" fill="transparent"/><circle cx="${x(i)}" cy="${y(p.rpe)}" r="${p.sick ? 5 : 4}" fill="${p.sick ? 'var(--bad)' : 'var(--accent)'}" stroke="var(--surface)" stroke-width="2"/></g>`).join('');
+    const dots = pts.map((p, i) => `<g class="hov" data-tip="${esc(fmtShort(p.date) + '\n' + (p.kind ? p.title + ' (1)' : p.title + '\nRPE ' + p.rpe))}"><circle cx="${x(i)}" cy="${y(p.rpe)}" r="10" fill="transparent"/><circle cx="${x(i)}" cy="${y(p.rpe)}" r="${p.kind ? 5 : 4}" fill="${dotColor(p)}" stroke="var(--surface)" stroke-width="2"/></g>`).join('');
     const first = pts[0].date, last = pts[n - 1].date;
-    return `${anySick ? '<div class="legend"><span><i style="background:var(--accent)"></i>RPE</span><span><i style="background:var(--bad)"></i>Krank (1)</span></div>' : ''}<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="RPE-Verlauf">${g}<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}
+    return `${anySick || anyMissed ? `<div class="legend"><span><i style="background:var(--accent)"></i>RPE</span>${anySick ? '<span><i style="background:var(--warn)"></i>Krank (1)</span>' : ''}${anyMissed ? '<span><i style="background:var(--bad)"></i>Verhindert (1)</span>' : ''}</div>` : ''}<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="RPE-Verlauf">${g}<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}
       <text x="${padL}" y="${H - 5}">${fmtShort(first)}</text><text x="${W - 4}" y="${H - 5}" text-anchor="end">${fmtShort(last)}</text></svg>`;
   }
 
@@ -636,7 +638,7 @@
     if (l.comment) lines.push('„' + l.comment + '“');
     const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Foto ${i + 1}${f.part ? ' · ' + esc(f.part) : ''}</a>`).join('')}</div>` : '';
     return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}${l.planDate && l.planDate !== l.date ? ' · geplant ' + fmtShort(l.planDate) : ''}</span></div>
-      <div class="row">${l.alt ? '<span class="chip">Alternativ</span>' : ''}${l.sick ? '<span class="chip bad">Krank</span>' : l.missed ? '<span class="chip warn">Verhindert</span>' : l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
+      <div class="row">${l.alt ? '<span class="chip">Alternativ</span>' : ''}${l.sick ? '<span class="chip warn">Krank</span>' : l.missed ? '<span class="chip bad">Verhindert</span>' : l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
       <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport && !pl ? ' · ' + esc(l.sport) : ''}</div>
       ${lines.length ? `<div class="logline">${esc(lines.join('\n'))}</div>` : ''}${files}</div>`;
   }
@@ -710,7 +712,7 @@
         const done = real.filter((u) => C.logs.some((l) => l.athlete === a.name && l.unitKey === u.key && !l.missed)).length;
         const sick = real.some((u) => C.logs.some((l) => l.athlete === a.name && l.unitKey === u.key && l.sick));
         const miss = real.some((u) => C.logs.some((l) => l.athlete === a.name && l.unitKey === u.key && l.missed));
-        const cls = !real.length ? '' : sick ? 'bad' : miss ? 'warn' : done === real.length ? 'good' : done ? 'warn' : '';
+        const cls = !real.length ? '' : sick ? 'warn' : miss ? 'bad' : done === real.length ? 'good' : done ? 'warn' : '';
         const label = sick ? ' krank' : miss ? ' verhindert' : real.length ? ` ${done}/${real.length}` : '';
         return `<span class="chip ${cls}" data-ath="${esc(a.name)}">${esc(a.name)}${label}</span>`;
       }).join('') + '</div></div>';
@@ -744,8 +746,8 @@
         <td class="num">${fmtNum(st.thisWeekDone)} / ${fmtNum(st.thisWeekPlanned)}</td>
         <td class="num">${st.open.length ? `<span class="chip warn">${st.open.length}</span>` : '0'}</td>
         <td class="num">${st.rpe7 ? fmtNum(st.rpe7, 1) : '–'}</td>
-        <td class="num">${st.sickDays ? `<span class="chip bad">${st.sickDays} T</span>` : '–'}</td>
-        <td class="num">${st.missed ? `<span class="chip warn">${st.missed}</span>` : '–'}</td>
+        <td class="num">${st.sickDays ? `<span class="chip warn">${st.sickDays} T</span>` : '–'}</td>
+        <td class="num">${st.missed ? `<span class="chip bad">${st.missed}</span>` : '–'}</td>
         <td class="num">${st.ausd ? st.shots + '/' + st.ausd : '–'}</td>
         <td>${st.lastLog ? fmtShort(st.lastLog) : '<span class="faint">–</span>'}</td></tr>`).join('')}</tbody></table></div></div>
       <button class="btn secondary block mt" id="reload">Plan & Daten neu laden</button>`;

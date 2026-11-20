@@ -254,9 +254,10 @@ input.in:focus, select.in:focus, textarea.in:focus { outline: 2px solid var(--ac
 .pphoto { font-size: 12px; color: var(--good); margin: -2px 0 6px 2px; font-weight: 600; }
 
 /* Krank */
-.check.sickbox { border-color: var(--bad-soft); }
-.check.sickbox input { accent-color: var(--bad); }
-.check.missbox { border-color: var(--warn-soft); }
-.check.missbox input { accent-color: var(--warn); }
+.check.sickbox { border-color: var(--warn-soft); }
+.check.sickbox input { accent-color: var(--warn); }
+.check.missbox { border-color: var(--bad-soft); }
+.check.missbox input { accent-color: var(--bad); }
+.btn.warnbtn { background: var(--warn-soft); color: var(--warn); }
 .check.altbox { border-color: var(--accent-soft); }
 .check.altbox input { accent-color: var(--accent); }
