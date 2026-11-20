@@ -18,7 +18,7 @@ var TAB_SETTINGS = 'App-Einstellungen';
 var LOG_HEADERS = [
   'ID', 'Zeitstempel', 'Sportler', 'Gruppe', 'Plan-Blatt', 'Datum', 'Einheit-Key', 'Einheit', 'Typ',
   'Sportart', 'Ersatz', 'Plan-Minuten', 'Minuten', 'km', 'Puls', 'RPE', 'Vorgaben', 'Vorgaben erfüllt',
-  'Gewichte', 'Ergo-Belastung', 'Split', 'Kommentar', 'Screenshot', 'Screenshot-Links', 'Daten (JSON)', 'Plan-Datum', 'Bestandteile', 'Krank', 'Verhindert'
+  'Gewichte', 'Ergo-Belastung', 'Split', 'Kommentar', 'Screenshot', 'Screenshot-Links', 'Daten (JSON)', 'Plan-Datum', 'Bestandteile', 'Krank', 'Verhindert', 'Alternativ'
 ];
 
 var ATHLETES = [
@@ -264,7 +264,8 @@ function readLogs_(filterName) {
       planDate: r[25] instanceof Date ? dateFmt_()(r[25]) : String(r[25] || ''),
       parts: data.parts || [],
       sick: !!data.sick || r[27] === 'Ja',
-      missed: !!data.missed || r[28] === 'Ja'
+      missed: !!data.missed || r[28] === 'Ja',
+      alt: !!data.alt || r[29] === 'Ja'
     });
   });
   return out;
@@ -387,6 +388,7 @@ function saveLog_(user, log, files) {
 
     // Krank: 0 Minuten, keine Trainingsdaten
     if (log.missed) log.sick = false;
+    if (log.sick || log.missed) log.alt = false;
     if (log.sick || log.missed) { log.minutes = 0; log.km = ''; log.hr = ''; log.rpe = ''; log.parts = []; log.hints = []; log.weights = []; log.sport = log.sick ? 'Krank' : 'Verhindert'; }
     var hints = (log.hints || []).map(function (h) { return { text: String(h.text), done: !!h.done }; });
     var parts = (log.parts || []).filter(function (p) { return p && (p.sport || p.minutes !== '' || p.km !== '' || p.hr !== ''); }).map(function (p) {
@@ -423,13 +425,14 @@ function saveLog_(user, log, files) {
       log.comment || '',
       stored.length ? 'Ja' : 'Nein',
       stored.map(function (f) { return f.url; }).join('\n'),
-      JSON.stringify({ hints: hints, weights: weights, files: stored, parts: parts, sick: !!log.sick, missed: !!log.missed }),
+      JSON.stringify({ hints: hints, weights: weights, files: stored, parts: parts, sick: !!log.sick, missed: !!log.missed, alt: !!log.alt }),
       log.planDate || '',
       parts.map(function (p) {
         return p.sport + (p.minutes != null ? ' ' + p.minutes + ' min' : '') + (p.km != null ? ' / ' + p.km + ' km' : '') + (p.hr != null ? ' / HF ' + p.hr : '');
       }).join('\n'),
       log.sick ? 'Ja' : '',
-      log.missed ? 'Ja' : ''
+      log.missed ? 'Ja' : '',
+      log.alt ? 'Ja' : ''
     ];
     ensureLogHeader_(sh);
     if (existing) {
