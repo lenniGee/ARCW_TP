@@ -62,3 +62,21 @@ function stravaUpsert_(rows) {
   if (last > 1) sh.getRange(2, 3, last - 1, 1).setNumberFormat('ddd, dd.MM.yyyy');
   return { inserted: ins, updated: upd, total: last - 1 };
 }
+
+/**
+ * Strava-Fotos in den Drive-Ordner "Strava-Fotos" (unter dem Screenshot-Ordner) laden.
+ * list: [[Aktivitäts-ID, Bild-URL ohne https://], ...]. Bereits vorhandene Dateien werden übersprungen.
+ */
+function stravaFotosHolen_(list) {
+  var root = DriveApp.getFolderById(settings_().folderId || '1eIUqBUdalzyYaMDROw1_L0V8YAzDFwIk');
+  var it = root.getFoldersByName('Strava-Fotos');
+  var f = it.hasNext() ? it.next() : root.createFolder('Strava-Fotos');
+  var n = 0;
+  list.forEach(function (x) {
+    var name = x[0] + '_' + String(x[1]).split('/').pop();
+    if (f.getFilesByName(name).hasNext()) return;
+    f.createFile(UrlFetchApp.fetch('https://' + x[1]).getBlob().setName(name));
+    n++;
+  });
+  return { neu: n, ordner: f.getId() };
+}
