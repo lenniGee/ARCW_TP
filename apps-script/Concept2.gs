@@ -115,10 +115,16 @@ function c2Compact_(name, id, withCurve) {
     spm: r.stroke_rate || null, hr: r.heart_rate && r.heart_rate.average ? r.heart_rate.average : null, iv: []
   };
   var w = r.workout || {};
+  var restT = 0, restD = 0;
   (w.intervals || w.splits || []).forEach(function (s) {
-    o.iv.push([Math.round(Number(s.time || 0)) / 10, Number(s.distance || 0), s.stroke_rate || null, s.heart_rate && (s.heart_rate.average || s.heart_rate.ending) || null, s.rest_time ? Number(s.rest_time) / 10 : 0]);
+    var rt = s.rest_time ? Number(s.rest_time) / 10 : 0, rd = Number(s.rest_distance || 0);
+    if (w.intervals) { restT += rt; restD += rd; }
+    o.iv.push([Math.round(Number(s.time || 0)) / 10, Number(s.distance || 0), s.stroke_rate || null, s.heart_rate && (s.heart_rate.average || s.heart_rate.ending) || null, rt, rd]);
   });
   o.isInterval = !!w.intervals;
+  // Pausen: Zeit und in der Pause geruderte Meter (zählen zur Einheit, ohne Schlagdaten)
+  o.rest = Math.round((r.rest_time ? Number(r.rest_time) / 10 : restT) * 10) / 10;
+  o.restDist = Number(r.rest_distance || restD || 0);
   if (withCurve) {
     var st = c2Strokes_(name, r.id);
     if (st) { o.pc = st.pc; o.hc = st.hc; }
@@ -163,18 +169,19 @@ function c2Woche_(from, to) {
       if (!o) return;
       var pts = c2Strokes_(a.name, r.id, true) || [];
       var z = zones[a.name], zs = [0, 0, 0, 0, 0, 0], zh = [0, 0, 0, 0, 0, 0];
+      if (z && o.rest > 0 && o.restDist > 0 && o.type === 'rower') { var rs = o.rest * 500 / o.restDist; var rk = z.sp.findIndex(function (b) { return rs > b; }); zs[rk < 0 ? 5 : rk] += o.rest; }
       for (var i = 1; i < pts.length; i++) {
         var dt = Math.min(10, Math.max(0, pts[i].t - pts[i - 1].t));
         if (z && o.type === 'rower' && pts[i].p > 60) { var k = z.sp.findIndex(function (b) { return pts[i].p > b; }); zs[k < 0 ? 5 : k] += dt; }
         if (z && pts[i].hr > 40) { var h = z.hr.findIndex(function (b) { return pts[i].hr < b; }); zh[h < 0 ? 5 : h] += dt; }
       }
-      rows.push([String(o.id), a.name, String(o.date).slice(0, 10), String(o.date).slice(11, 16), o.type, o.wt, o.dist, Math.round(o.time / 6) / 10,
+      rows.push([String(o.id), a.name, String(o.date).slice(0, 10), String(o.date).slice(11, 16), o.type, o.wt, o.dist, Math.round((o.time + (o.rest || 0)) / 6) / 10, Math.round((o.rest || 0) / 6) / 10, o.restDist || '',
         o.split ? c2Fmt_(o.split) : '', o.watt || '', o.spm || '', o.hr || '',
         o.iv.map(function (s) { return c2Fmt_(s[0]) + ' / ' + s[1] + ' m' + (s[2] ? ' / SF ' + s[2] : ''); }).join('\n'),
         pts.length ? 'Ja' : 'Nein'].concat(zs.map(Math.round), zh.map(Math.round)));
     });
   });
-  var head = ['Ergebnis-ID', 'Athlet', 'Datum', 'Uhrzeit', 'Gerät', 'Workout-Typ', 'Meter', 'Minuten', 'Ø Split', 'Ø Watt', 'Ø SF', 'Ø HF', 'Intervalle', 'Schlagdaten',
+  var head = ['Ergebnis-ID', 'Athlet', 'Datum', 'Uhrzeit', 'Gerät', 'Workout-Typ', 'Meter', 'Minuten (inkl. Pause)', 'davon Pause (min)', 'Pausen-Meter', 'Ø Split', 'Ø Watt', 'Ø SF', 'Ø HF', 'Intervalle', 'Schlagdaten',
     'Split Z1 (s)', 'Split Z2 (s)', 'Split Z3 (s)', 'Split Z4 (s)', 'Split Z5 (s)', 'Split Z6 (s)', 'HF Z1 (s)', 'HF Z2 (s)', 'HF Z3 (s)', 'HF Z4 (s)', 'HF Z5 (s)', 'HF Z6 (s)'];
   var sh = SpreadsheetApp.getActive().getSheetByName(TAB_C2) || SpreadsheetApp.getActive().insertSheet(TAB_C2);
   // vorhandene Zeilen behalten, gleiche IDs ersetzen
