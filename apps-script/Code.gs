@@ -122,6 +122,10 @@ function handle_(req) {
       case 'hall': res = { hall: hallOfFame_() }; break;
       case 'saveLog': res = saveLog_(user, req.log, req.files || []); break;
       case 'deleteLog': res = deleteLog_(user, req.id); break;
+      case 'c2Status': res = c2Status_(user, req.athlete); break;
+      case 'c2Connect': res = c2Connect_(user, req.code); break;
+      case 'c2Disconnect': res = c2Disconnect_(user); break;
+      case 'c2Results': res = c2Results_(user, req.athlete, req.date); break;
       default: throw new Error('Unbekannte Aktion');
     }
     res.ok = true;
@@ -392,7 +396,9 @@ function saveLog_(user, log, files) {
     if (log.sick || log.missed) { log.minutes = 0; log.km = ''; log.hr = ''; log.rpe = ''; log.parts = []; log.hints = []; log.weights = []; log.sport = log.sick ? 'Krank' : 'Verhindert'; }
     var hints = (log.hints || []).map(function (h) { return { text: String(h.text), done: !!h.done }; });
     var parts = (log.parts || []).filter(function (p) { return p && (p.sport || p.minutes !== '' || p.km !== '' || p.hr !== ''); }).map(function (p) {
-      return { sport: String(p.sport || 'Sonstiges'), minutes: num_(p.minutes), km: num_(p.km), hr: num_(p.hr) };
+      var o = { sport: String(p.sport || 'Sonstiges'), minutes: num_(p.minutes), km: num_(p.km), hr: num_(p.hr) };
+      if (p.c2 && p.c2.id) o.c2 = c2Clean_(p.c2);
+      return o;
     });
     var weights = (log.weights || []).filter(function (w) { return w && w.name; }).map(function (w) {
       return { name: String(w.name), kg: w.kg === '' || w.kg == null ? null : Number(String(w.kg).replace(',', '.')), note: w.note || '' };
@@ -504,4 +510,12 @@ function testParse() {
   Logger.log(p.units.length + ' Einheiten, ' + p.weeks.length + ' Wochen');
   var k = readKraft_('Kraft A-Junioren');
   Logger.log(JSON.stringify(k.order));
+}
+
+// Concept2-Daten eines Bestandteils begrenzen (Zellgröße)
+function c2Clean_(x) {
+  var n = function (v) { v = Number(v); return isNaN(v) ? null : v; };
+  var arr = function (a, k) { return (a || []).slice(0, k || 60).map(n); };
+  return { id: String(x.id), date: String(x.date || ''), type: String(x.type || ''), wt: String(x.wt || ''), dist: n(x.dist), time: n(x.time), split: n(x.split), watt: n(x.watt), spm: n(x.spm), hr: n(x.hr),
+    isInterval: !!x.isInterval, iv: (x.iv || []).slice(0, 40).map(function (s) { return (s || []).slice(0, 5).map(n); }), pc: arr(x.pc), hc: arr(x.hc) };
 }

@@ -31,6 +31,7 @@ var PARSER = (function () {
       else if (map.minutes == null && (/^min/.test(h) || /^dauer/.test(h))) map.minutes = i;
       else if (map.ersatz == null && /^ersatz/.test(h)) map.ersatz = i;
       else if (map.note == null && /hinweis/.test(h)) map.note = i;
+      else if (map.ergdata == null && /ergdata/.test(h)) map.ergdata = i;
     });
     return map;
   }
@@ -224,6 +225,7 @@ var PARSER = (function () {
         ersatz: ersatz,
         ersatzSections: ersatz ? splitSections(ersatz) : null,
         note: c.note != null ? str(row[c.note]) : '',
+        ergdata: c.ergdata != null && /^https?:\/\//.test(str(row[c.ergdata])) ? str(row[c.ergdata]) : '',
         minutes: minutes,
         type: type,
         sport: type === 'ausdauer' ? guessSport(title, text) : (type === 'kraft' ? 'Kraft' : ''),
