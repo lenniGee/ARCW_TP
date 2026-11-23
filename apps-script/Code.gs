@@ -514,7 +514,7 @@ function testParse() {
 
 // Concept2-Daten eines Bestandteils begrenzen (Zellgröße)
 function c2Clean_(x) {
-  var n = function (v) { v = Number(v); return isNaN(v) ? null : v; };
+  var n = function (v) { if (v === null || v === undefined || v === '') return null; v = Number(v); return isNaN(v) ? null : v; };
   var arr = function (a, k) { return (a || []).slice(0, k || 60).map(n); };
   return { id: String(x.id), date: String(x.date || ''), type: String(x.type || ''), wt: String(x.wt || ''), dist: n(x.dist), time: n(x.time), split: n(x.split), watt: n(x.watt), spm: n(x.spm), hr: n(x.hr),
     isInterval: !!x.isInterval, iv: (x.iv || []).slice(0, 40).map(function (s) { return (s || []).slice(0, 5).map(n); }), pc: arr(x.pc), hc: arr(x.hc) };
