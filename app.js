@@ -48,7 +48,7 @@
     planWeekStart: null,
     coachAthlete: null,          // Name des Sportlers in der Trainer-Detailansicht
     coachTab: 'stats',
-    hallMode: 'total',
+    hallMode: 'week',
     expanded: {}
   };
 
@@ -734,7 +734,7 @@
     }).join('');
     const total = list.reduce((s, x) => s + (mode === 'week' ? x.week : x.minutes), 0);
     app.innerHTML = `<div class="sectiontitle" style="margin-top:0"><h1>Hall of Fame</h1>
-      <div class="seg"><button data-m="total" class="${mode === 'total' ? 'active' : ''}">Gesamt</button><button data-m="week" class="${mode === 'week' ? 'active' : ''}">Diese Woche</button></div></div>
+      <div class="seg"><button data-m="week" class="${mode === 'week' ? 'active' : ''}">Diese Woche</button><button data-m="total" class="${mode === 'total' ? 'active' : ''}">Gesamt</button></div></div>
       <p class="faint" style="margin-top:-4px">${mode === 'week' ? 'Protokollierte Minuten seit Montag' : 'Protokollierte Minuten seit ' + fmtShort(start)} · Team gesamt: ${fmtMin(total)}</p>
       <div class="card">${rows || '<div class="empty">Noch keine Einträge</div>'}</div>`;
     $$('.seg button', app).forEach((b) => b.onclick = () => { S.hallMode = b.dataset.m; renderHall(app); });
