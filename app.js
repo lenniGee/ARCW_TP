@@ -106,7 +106,7 @@
     if (S.user.role === 'coach') {
       S.coach = await api('coach');
       store.set('cache_coach', S.coach);
-      if (!['ctoday', 'team', 'hall', 'athlete'].includes(S.view)) S.view = 'ctoday';
+      if (!['ctoday', 'cplan', 'team', 'hall', 'athlete'].includes(S.view)) S.view = 'ctoday';
     } else {
       S.data = await api('athlete');
       store.set('cache_athlete', S.data);
@@ -173,7 +173,7 @@
   }
 
   function logout() {
-    S.auth = null; S.user = null; S.data = null; S.coach = null; S.c2 = null; S.hall = null; S.view = null; S.date = todayISO(); S.planWeekStart = null;
+    S.auth = null; S.user = null; S.data = null; S.coach = null; S.cplanGroup = null; S.c2 = null; S.hall = null; S.view = null; S.date = todayISO(); S.planWeekStart = null;
     store.del('auth'); store.del('cache_athlete'); store.del('cache_coach');
     showLogin();
   }
@@ -184,13 +184,13 @@
     $('#who').innerHTML = `<span>${esc(u.role === 'coach' ? 'Trainer' : firstName(u.name))}</span><button id="lo">Abmelden</button>`;
     $('#lo').onclick = logout;
     const tabs = u.role === 'coach'
-      ? [['ctoday', 'Heute', ICON.today], ['team', 'Sportler', ICON.team], ['hall', 'Hall of Fame', ICON.hall]]
+      ? [['ctoday', 'Heute', ICON.today], ['cplan', 'Plan', ICON.plan], ['team', 'Sportler', ICON.team], ['hall', 'Hall of Fame', ICON.hall]]
       : [['today', 'Heute', ICON.today], ['plan', 'Plan', ICON.plan], ['stats', 'Auswertung', ICON.stats], ['hall', 'Hall of Fame', ICON.hall]];
     const tb = $('#tabbar');
     tb.hidden = false;
     const activeView = S.view === 'athlete' ? 'team' : S.view;
     tb.innerHTML = tabs.map(([k, l, i]) => `<button data-v="${k}" class="${activeView === k ? 'active' : ''}">${i}<span>${l}</span></button>`).join('');
-    $$('button', tb).forEach((b) => b.onclick = () => { S.view = b.dataset.v; if (S.view === 'today' || S.view === 'ctoday') S.date = todayISO(); render(); window.scrollTo(0, 0); });
+    $$('button', tb).forEach((b) => b.onclick = () => { S.view = b.dataset.v; if (S.view === 'today' || S.view === 'ctoday') S.date = todayISO(); if (S.view === 'cplan') S.planWeekStart = null; render(); window.scrollTo(0, 0); });
   }
 
   function render(state) {
@@ -204,6 +204,7 @@
       case 'stats': return renderStats(app, athleteCtx());
       case 'hall': return renderHall(app);
       case 'ctoday': return renderCoachToday(app);
+      case 'cplan': return renderCoachPlan(app);
       case 'team': return renderTeam(app);
       case 'athlete': return renderCoachAthlete(app);
     }
@@ -449,7 +450,8 @@
       <button class="iconbtn" id="wnext" aria-label="Nächste Woche">${ICON.right}</button></div>`;
     if (ws !== mondayOf(todayISO())) html += `<div class="row" style="justify-content:center;margin:-6px 0 12px"><button class="btn ghost small" id="wnow">Zur aktuellen Woche</button></div>`;
     if (wk && wk.note) html += `<div class="note" style="margin:0 0 12px">${esc(wk.note)}</div>`;
-    html += `<div class="kpis"><div class="kpi"><div class="v">${fmtMin(planned)}</div><div class="l">geplant</div></div><div class="kpi"><div class="v">${fmtMin(done)}</div><div class="l">protokolliert</div><div class="meter"><i style="width:${planned ? Math.min(100, done / planned * 100) : 0}%"></i></div></div></div>`;
+    if (ctx.groupView) html += `<div class="faint" style="margin:0 2px 10px">Geplant: <b>${fmtMin(planned)}</b> (ohne optionale Einheiten)</div>`;
+    else html += `<div class="kpis"><div class="kpi"><div class="v">${fmtMin(planned)}</div><div class="l">geplant</div></div><div class="kpi"><div class="v">${fmtMin(done)}</div><div class="l">protokolliert</div><div class="meter"><i style="width:${planned ? Math.min(100, done / planned * 100) : 0}%"></i></div></div></div>`;
     if (!units.length) html += '<div class="card empty">Für diese Woche gibt es keinen Plan.</div>';
     for (let i = 0; i < 7; i++) {
       const d = addDays(ws, i);
@@ -459,9 +461,9 @@
       du.forEach((u) => {
         const open = S.expanded['u' + u.key];
         if (open) {
-          html += `<div data-collapse="${esc(u.key)}">${unitCard(ctx, u)}</div>`;
+          html += `<div data-collapse="${esc(u.key)}">${unitCard(ctx, u, ctx.groupView ? { noLog: true } : undefined)}</div>`;
         } else {
-          const logged = logsForUnit(ctx, u).some((l) => !l.missed);
+          const logged = !ctx.groupView && logsForUnit(ctx, u).some((l) => !l.missed);
           html += `<div class="card compact" data-expand="${esc(u.key)}"><span class="dot ${u.type === 'rest' ? 'rest' : logged ? 'done' : ''}"></span>
             <div class="t"><b>${esc(u.title)}</b><span class="faint">${esc([u.time, u.zone].filter(Boolean).join(' · '))}</span></div>
             <span class="mins">${u.minutes ? u.minutes + '<small> min</small>' : ''}</span></div>`;
@@ -778,6 +780,29 @@
     bindDayNav();
     $$('[data-cexp]', app).forEach((el) => el.onclick = () => { S.expanded[el.dataset.cexp] = !S.expanded[el.dataset.cexp]; render(); });
     $$('[data-ath]', app).forEach((el) => el.onclick = () => openAthlete(el.dataset.ath));
+  }
+
+  // ------------------------------------------------------------ Trainer: Wochenplan je Gruppe
+  const CPLAN_GROUPS = [['Junioren B', 'B'], ['Junioren A', 'A'], ['Marie', 'Marie'], ['Alex', 'Alex']];
+  function defaultCoachGroup() {
+    const n = firstName(S.user.name || '').toLowerCase();
+    if (n === 'hannes') return 'Junioren B';
+    if (n === 'lisa' || n === 'lenni') return 'Junioren A';
+    return 'Junioren B';
+  }
+  function renderCoachPlan(app) {
+    const C = S.coach;
+    const groups = CPLAN_GROUPS.filter(([p]) => C.plans[p]).concat(Object.keys(C.plans).filter((p) => !CPLAN_GROUPS.some(([g]) => g === p)).map((p) => [p, p]));
+    if (!S.cplanGroup || !C.plans[S.cplanGroup]) S.cplanGroup = defaultCoachGroup();
+    if (!C.plans[S.cplanGroup] && groups.length) S.cplanGroup = groups[0][0];
+    const g = S.cplanGroup;
+    const ath = C.athletes.filter((a) => a.plan === g);
+    const kraftName = (ath.find((a) => a.kraft) || {}).kraft;
+    app.innerHTML = `<div class="row" style="justify-content:center;margin:0 0 12px"><div class="seg">${groups.map(([p, l]) => `<button data-g="${esc(p)}" class="${p === g ? 'active' : ''}">${esc(l)}</button>`).join('')}</div></div>
+      <div class="faint" style="text-align:center;margin:-4px 0 8px">${esc(g)}${ath.length ? ' · ' + ath.length + ' Sportler' : ''}</div><div id="cpbody"></div>`;
+    $$('[data-g]', app).forEach((b) => b.onclick = () => { S.cplanGroup = b.dataset.g; render(); });
+    const ctx = { athlete: { name: g, plan: g }, plan: C.plans[g] || { units: [], weeks: [] }, kraft: kraftName ? C.kraft[kraftName] : null, logs: [], settings: C.settings, isCoach: true, groupView: true };
+    renderPlan(app, ctx, $('#cpbody'));
   }
 
   function openAthlete(name) { S.coachAthlete = name; S.view = 'athlete'; S.coachTab = 'stats'; S.planWeekStart = null; render(); window.scrollTo(0, 0); }
