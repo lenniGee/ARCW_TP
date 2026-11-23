@@ -771,8 +771,11 @@
         const done = real.filter((u) => C.logs.some((l) => l.athlete === a.name && l.unitKey === u.key && !l.missed)).length;
         const sick = real.some((u) => C.logs.some((l) => l.athlete === a.name && l.unitKey === u.key && l.sick));
         const miss = real.some((u) => C.logs.some((l) => l.athlete === a.name && l.unitKey === u.key && l.missed));
-        const cls = !real.length ? '' : sick ? 'warn' : miss ? 'bad' : done === real.length ? 'good' : done ? 'warn' : '';
-        const label = sick ? ' krank' : miss ? ' verhindert' : real.length ? ` ${done}/${real.length}` : '';
+        const extraMin = C.logs.filter((l) => l.athlete === a.name && l.date === S.date && !l.sick && !l.missed && !real.some((u) => u.key === l.unitKey)).reduce((x, l) => x + logMinutes(l), 0);
+        const hasExtra = C.logs.some((l) => l.athlete === a.name && l.date === S.date && !l.sick && !l.missed && !real.some((u) => u.key === l.unitKey));
+        const cls = !real.length ? (hasExtra ? 'good extra' : '') : sick ? 'warn' : miss ? 'bad' : done === real.length ? 'good' : done ? 'warn' : '';
+        const xl = hasExtra ? (real.length ? ' +' : ' ★ Zusatz ') + (extraMin ? extraMin + '′' : '') : '';
+        const label = (sick ? ' krank' : miss ? ' verhindert' : real.length ? ` ${done}/${real.length}` : '') + xl;
         return `<span class="chip ${cls}" data-ath="${esc(a.name)}">${esc(a.name)}${label}</span>`;
       }).join('') + '</div></div>';
     });
