@@ -261,3 +261,15 @@ input.in:focus, select.in:focus, textarea.in:focus { outline: 2px solid var(--ac
 .btn.warnbtn { background: var(--warn-soft); color: var(--warn); }
 .check.altbox { border-color: var(--accent-soft); }
 .check.altbox input { accent-color: var(--accent); }
+
+/* Concept2 / ErgData */
+.c2box { margin-top: 10px; border: 1px solid var(--line, #e3e6ea); border-radius: 10px; padding: 8px 10px; background: var(--surface, #fff); }
+.c2head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; margin-bottom: 4px; }
+.chip.c2 { background: #e8f0fb; color: #1c5cab; }
+.c2chart { display: block; max-width: 100%; }
+.c2chart .ax { font-size: 10px; fill: var(--ink-3, #8c908c); }
+.part-top .c2btn { white-space: nowrap; }
+.c2pick:empty { display: none; }
+.c2pick { margin-top: 6px; }
+a.ergdata { display: inline-block; margin: 8px 0 2px; text-decoration: none; }
+.c2card .row { gap: 8px; flex-wrap: wrap; }

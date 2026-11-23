@@ -161,6 +161,7 @@
         store.set('auth', S.auth);
         store.set('lastName', name);
         render();
+        if (store.get('c2code')) { await c2Finish(); render(); }
       } catch (e) {
         S.auth = null;
         $('#le').textContent = e.message;
@@ -172,7 +173,7 @@
   }
 
   function logout() {
-    S.auth = null; S.user = null; S.data = null; S.coach = null; S.hall = null; S.view = null; S.date = todayISO(); S.planWeekStart = null;
+    S.auth = null; S.user = null; S.data = null; S.coach = null; S.c2 = null; S.hall = null; S.view = null; S.date = todayISO(); S.planWeekStart = null;
     store.del('auth'); store.del('cache_athlete'); store.del('cache_coach');
     showLogin();
   }
@@ -257,6 +258,59 @@
     return bits.join(' · ');
   }
 
+  // ------------------------------------------------------------ Concept2
+  const fmtSplit = (sec) => { if (!sec) return '–'; const m = Math.floor(sec / 60), r = sec - m * 60; return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1).replace('.', ','); };
+  function c2Summary(c) {
+    const iv = c.iv || [];
+    const ivTxt = c.isInterval && iv.length ? iv.length + ' Intervalle · ' + iv.map((x) => fmtSplit(x[1] ? x[0] * 500 / x[1] : 0)).join(' / ') : '';
+    return [(c.dist ? fmtNum(c.dist / 1000, 2) + ' km' : ''), (c.time ? fmtMin(c.time / 60) : ''), (c.split ? 'Ø ' + fmtSplit(c.split) + ' /500 m' : ''), (c.watt ? c.watt + ' W' : ''), (c.spm ? 'SF ' + c.spm : ''), (c.hr ? 'HF ' + c.hr : ''), ivTxt].filter(Boolean).join(' · ');
+  }
+  function c2Chart(c, w) {
+    w = w || chartW(); const h = 120, pad = { l: 34, r: 30, t: 8, b: 16 };
+    const pc = (c.pc || []).map((v) => (v > 60 && v < 300 ? v : 0)), hc = (c.hc || []).map((v) => (v > 40 ? v : 0));
+    if (!pc.some(Boolean) && !hc.some(Boolean)) return '';
+    const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b, n = Math.max(pc.length, hc.length) || 1;
+    const x = (i) => pad.l + iw * (i + 0.5) / n;
+    const ok = pc.filter(Boolean); const plo = ok.length ? Math.min(...ok) - 3 : 100, phi = ok.length ? Math.max(...ok) + 3 : 150;
+    const yp = (v) => pad.t + ih * (v - plo) / (phi - plo || 1);
+    const okh = hc.filter(Boolean); const hlo = okh.length ? Math.min(...okh) - 5 : 80, hhi = okh.length ? Math.max(...okh) + 5 : 200;
+    const yh = (v) => pad.t + ih - ih * (v - hlo) / (hhi - hlo || 1);
+    const path = (arr, y) => { let d = '', pen = false; arr.forEach((v, i) => { if (!v) { pen = false; return; } d += (pen ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(v).toFixed(1); pen = true; }); return d; };
+    let g = '';
+    if (ok.length) g += `<text x="${pad.l - 4}" y="${yp(plo + 3) + 3}" text-anchor="end" class="ax">${fmtSplit(plo + 3)}</text><text x="${pad.l - 4}" y="${yp(phi - 3) + 3}" text-anchor="end" class="ax">${fmtSplit(phi - 3)}</text><path d="${path(pc, yp)}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
+    if (okh.length) g += `<text x="${w - pad.r + 4}" y="${yh(hhi - 5) + 3}" class="ax">${hhi - 5}</text><text x="${w - pad.r + 4}" y="${yh(hlo + 5) + 3}" class="ax">${hlo + 5}</text><path d="${path(hc, yh)}" fill="none" stroke="var(--bad)" stroke-width="1.6"/>`;
+    g += `<text x="${pad.l}" y="${h - 3}" class="ax">0</text><text x="${w - pad.r}" y="${h - 3}" text-anchor="end" class="ax">${fmtMin((c.time || 0) / 60)}</text>`;
+    return `<div class="legend"><span><i style="background:var(--accent)"></i>Split /500 m (schneller = oben)</span>${okh.length ? '<span><i style="background:var(--bad)"></i>Puls</span>' : ''}</div><svg width="${w}" height="${h}" class="c2chart">${g}</svg>`;
+  }
+  function c2Blocks(l) {
+    const ps = (l.parts || []).filter((p) => p.c2 && p.c2.id);
+    return ps.map((p) => `<div class="c2box"><div class="c2head"><span class="chip c2">Concept2</span> <b>${esc(p.sport)}</b> <span class="faint">${esc(c2Summary(p.c2))}</span></div>${c2Chart(p.c2, chartW() - 40)}</div>`).join('');
+  }
+  const hasC2 = (l) => (l.parts || []).some((p) => p.c2 && p.c2.id);
+  async function c2Status(force) {
+    if (S.c2 && !force) return S.c2;
+    try { const r = await api('c2Status', {}); S.c2 = r.c2; } catch (e) { S.c2 = { configured: false, connected: false, error: e.message }; }
+    return S.c2;
+  }
+  async function c2Finish() {
+    const code = store.get('c2code');
+    if (!code || !S.user || S.user.role === 'coach') return;
+    store.del('c2code');
+    try { const r = await api('c2Connect', { code }); S.c2 = r.c2; toast('Concept2 verbunden ✓'); } catch (e) { toast(e.message); }
+  }
+  function c2CardHTML() { return '<div id="c2card"></div>'; }
+  async function fillC2Card(ctx) {
+    const el = $('#c2card'); if (!el || ctx.isCoach) return;
+    const c = await c2Status();
+    if (!c.configured) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="card mt2 c2card"><div class="row between"><b>Concept2 / ErgData</b>${c.connected ? '<span class="chip good">verbunden ✓</span>' : '<span class="chip">freiwillig</span>'}</div>
+      ${c.connected ? `<div class="faint">${c.c2user ? esc(c.c2user) + ' · ' : ''}seit ${esc(c.since)}. Beim Protokollieren im Ergo-Bestandteil auf „Concept2“ tippen – Minuten, km, Puls und Verlauf werden übernommen.</div>
+        <div class="row mt"><a class="btn small secondary" href="https://log.concept2.com/profile" target="_blank" rel="noopener">Logbook → Strava einrichten</a><button class="btn small ghost" id="c2off">Trennen</button></div>
+        <details class="mt"><summary class="faint">Strava-Weiterleitung einrichten</summary><div class="faint">Im Logbook: Profil → „Edit Profile“ → „Applications“ → Strava verbinden und einmal in Strava bestätigen. Danach landet jedes Ergo-Workout automatisch auch in Strava.</div></details>`
+      : `<div class="faint">Wer mit der ErgData-App rudert, kann seine Ergo-Daten (Split, Intervalle, Puls) direkt ins Protokoll laden.</div><a class="btn small mt" href="${esc(c.authUrl)}">Concept2 verbinden</a>`}</div>`;
+    const off = $('#c2off'); if (off) off.onclick = async () => { if (!confirm('Concept2-Verbindung trennen?')) return; try { const r = await api('c2Disconnect', {}); S.c2 = r.c2; fillC2Card(ctx); } catch (e) { toast(e.message); } };
+  }
+
   function unitCard(ctx, unit, opts) {
     opts = opts || {};
     if (unit.type === 'rest') {
@@ -269,8 +323,8 @@
     let status;
     if (logs.length) {
       const l = logs[0];
-      status = `<div class="status"><div class="row">${l.sick ? '<span class="chip warn">Krank</span><span class="faint">0 min – gilt als protokolliert</span>' : l.missed ? `<span class="chip bad">Verhindert</span><span class="faint">0 min – zählt als nicht protokolliert${l.comment ? ' · ' + esc(l.comment) : ''}</span>` : `<span class="chip good">✓ ${l.alt ? 'Alternativ' : 'Protokolliert'}${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span>${l.alt && l.sport ? `<span class="chip">${esc(l.sport)}</span>` : ''}<span class="faint">${esc(logSummary(l))}</span>${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}`}</div>
-        ${opts.noLog || !canLog(ctx, l.date) ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>`;
+      status = `<div class="status"><div class="row">${l.sick ? '<span class="chip warn">Krank</span><span class="faint">0 min – gilt als protokolliert</span>' : l.missed ? `<span class="chip bad">Verhindert</span><span class="faint">0 min – zählt als nicht protokolliert${l.comment ? ' · ' + esc(l.comment) : ''}</span>` : `<span class="chip good">✓ ${l.alt ? 'Alternativ' : 'Protokolliert'}${l.date !== unit.date ? ' am ' + fmtShort(l.date) : ''}</span>${l.alt && l.sport ? `<span class="chip">${esc(l.sport)}</span>` : ''}<span class="faint">${esc(logSummary(l))}</span>${hasC2(l) ? '<span class="chip c2">Concept2 ✓</span>' : ''}${l.screenshot ? '<span class="chip">Screenshot ✓</span>' : (unit.type === 'ausdauer' && !hasC2(l) ? '<span class="chip warn">kein Screenshot</span>' : '')}`}</div>
+        ${opts.noLog || !canLog(ctx, l.date) ? '' : `<button class="btn small secondary" data-log="${esc(unit.key)}" data-id="${esc(l.id)}">Bearbeiten</button>`}</div>${c2Blocks(l)}`;
     } else {
       const past = unit.date < todayISO();
       const locked = !canLog(ctx, unit.date) && unit.date < todayISO();
@@ -283,6 +337,7 @@
       <div class="mins">${unit.minutes ? unit.minutes + '<small> min</small>' : ''}</div></div>
       ${sectionsHTML(unit.sections, unit.text)}
       ${unit.note ? `<div class="note">${esc(unit.note)}</div>` : ''}
+      ${unit.ergdata ? `<a class="btn small secondary ergdata" href="${esc(unit.ergdata)}" target="_blank" rel="noopener">▶ Workout in ErgData öffnen</a>` : ''}
       ${exerciseTable(ctx, unit)}
       ${unit.ersatz ? `<details class="ersatz"><summary>Ersatz, wenn Wasser ausfällt</summary>${sectionsHTML(unit.ersatzSections, unit.ersatz)}</details>` : ''}
       ${status}
@@ -347,8 +402,10 @@
     if (canLog(ctx, S.date) && S.date <= todayISO() && openToday.length) html += `<button class="btn warnbtn block mt" id="sickday">Krank melden (${openToday.length === 1 ? 'Einheit' : 'alle ' + openToday.length + ' Einheiten'} an diesem Tag)</button>`;
     if (canLog(ctx, S.date) && S.date <= todayISO() && openToday.length) html += `<button class="btn danger block mt" id="missday">Verhindert (${openToday.length === 1 ? 'Einheit' : 'alle ' + openToday.length + ' Einheiten'} an diesem Tag)</button>`;
     if (canLog(ctx, S.date) && S.date <= todayISO()) html += `<button class="btn secondary block mt" id="addextra">+ Zusatzeinheit eintragen</button>`;
+    if (!ctx.isCoach) html += c2CardHTML();
     html += installHint();
     app.innerHTML = html;
+    fillC2Card(ctx);
     bindDayNav();
     bindUnitButtons(app, ctx);
     const ax = $('#addextra'); if (ax) ax.onclick = () => openLogForm(ctx, null, null, S.date);
@@ -638,9 +695,9 @@
     if (l.comment) lines.push('„' + l.comment + '“');
     const files = ctx.isCoach && l.files && l.files.length ? `<div class="row mt">${l.files.map((f, i) => `<a class="chip zone" href="${esc(f.url)}" target="_blank" rel="noopener">Foto ${i + 1}${f.part ? ' · ' + esc(f.part) : ''}</a>`).join('')}</div>` : '';
     return `<div class="card"><div class="row between"><div><b>${esc(l.title || 'Einheit')}</b> <span class="faint">${withTitleDate ? '' : fmtShort(l.date)}${l.planDate && l.planDate !== l.date ? ' · geplant ' + fmtShort(l.planDate) : ''}</span></div>
-      <div class="row">${l.alt ? '<span class="chip">Alternativ</span>' : ''}${l.sick ? '<span class="chip warn">Krank</span>' : l.missed ? '<span class="chip bad">Verhindert</span>' : l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' ? '<span class="chip warn">kein Screenshot</span>' : '')}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
+      <div class="row">${l.alt ? '<span class="chip">Alternativ</span>' : ''}${l.sick ? '<span class="chip warn">Krank</span>' : l.missed ? '<span class="chip bad">Verhindert</span>' : (hasC2(l) ? '<span class="chip c2">Concept2 ✓</span>' : '') + (l.screenshot ? '<span class="chip good">Screenshot ✓</span>' : (l.type === 'ausdauer' && !hasC2(l) ? '<span class="chip warn">kein Screenshot</span>' : ''))}${canLog(ctx, l.date) ? `<button class="btn small secondary" data-editlog="${esc(l.id)}">Bearbeiten</button>` : ''}</div></div>
       <div class="logline">${esc(logSummary(l))}${l.planMinutes ? ' (geplant ' + l.planMinutes + ' min)' : ''}${l.sport && !pl ? ' · ' + esc(l.sport) : ''}</div>
-      ${lines.length ? `<div class="logline">${esc(lines.join('\n'))}</div>` : ''}${files}</div>`;
+      ${lines.length ? `<div class="logline">${esc(lines.join('\n'))}</div>` : ''}${c2Blocks(l)}${files}</div>`;
   }
 
   function logsHTML(ctx) {
@@ -879,7 +936,7 @@
       parts: null
     };
     const emptyPart = () => ({ sport: '', minutes: '', km: '', hr: '' });
-    const clonePart = (p) => ({ sport: p.sport || '', minutes: p.minutes == null ? '' : p.minutes, km: p.km == null ? '' : p.km, hr: p.hr == null ? '' : p.hr });
+    const clonePart = (p) => ({ sport: p.sport || '', minutes: p.minutes == null ? '' : p.minutes, km: p.km == null ? '' : p.km, hr: p.hr == null ? '' : p.hr, c2: p.c2 || null });
     if (log && log.parts && log.parts.length) st.parts = log.parts.map(clonePart);
     else if (log && log.type !== 'kraft') st.parts = [clonePart({ sport: log.sport, minutes: log.minutes, km: log.km, hr: log.hr })];
     else if (unit && unit.type !== 'kraft' && !st.alt) st.parts = partsFromUnit(unit, false).map(clonePart);
@@ -1066,22 +1123,42 @@
         const opts = SPORTS.concat(p.sport && !SPORTS.includes(p.sport) ? [p.sport] : []);
         return `<div class="part" data-p="${i}">
           <div class="part-top"><select class="in" data-pf="sport" aria-label="Sportart"><option value="">Sportart wählen …</option>${opts.map((x) => `<option ${x === p.sport ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+          ${/ergo/i.test(p.sport) ? `<button type="button" class="btn small secondary c2btn" data-pc2="${i}" title="Daten aus dem Concept2-Logbook laden">Concept2</button>` : ''}
           <label class="iconbtn pcam" aria-label="Foto zu diesem Bestandteil">${ICON.camera}<input type="file" accept="image/*" multiple data-pcam="${i}"></label>
           <button type="button" class="iconbtn" data-pdel="${i}" aria-label="Bestandteil entfernen">✕</button></div>
           ${(() => { const n = st.files.filter((f) => f.part && f.part === (p.sport || 'Bestandteil ' + (i + 1))).length; return n ? `<div class="pphoto">✓ ${n} Foto${n > 1 ? 's' : ''} zugeordnet</div>` : ''; })()}
           <div class="grid3"><label><span class="pl">Minuten</span><input class="in" data-pf="minutes" inputmode="numeric" value="${esc(p.minutes)}"></label>
           <label><span class="pl">km</span><input class="in" data-pf="km" inputmode="decimal" value="${esc(p.km)}"></label>
-          <label><span class="pl">Puls Ø</span><input class="in" data-pf="hr" inputmode="numeric" value="${esc(p.hr)}"></label></div></div>`;
+          <label><span class="pl">Puls Ø</span><input class="in" data-pf="hr" inputmode="numeric" value="${esc(p.hr)}"></label></div>
+          <div class="c2pick" data-pick="${i}"></div>
+          ${p.c2 ? `<div class="c2box"><div class="c2head"><span class="chip c2">Concept2 ✓</span> <span class="faint">${esc(c2Summary(p.c2))}</span> <button type="button" class="btn small ghost" data-pc2x="${i}">entfernen</button></div>${c2Chart(p.c2, Math.min(chartW() - 40, 330))}</div>` : ''}</div>`;
       }).join('') || '<div class="faint">Noch kein Bestandteil.</div>';
       $$('.part', list).forEach((row) => {
         const i = Number(row.dataset.p);
         $$('[data-pf]', row).forEach((el) => {
           const f = el.dataset.pf;
-          const upd = () => { st.parts[i][f] = el.value; updateTotal(); };
+          const upd = () => { st.parts[i][f] = el.value; updateTotal(); if (f === 'sport' && el.tagName === 'SELECT') renderParts(); };
           el.addEventListener('input', upd); el.addEventListener('change', upd);
         });
       });
       $$('[data-pdel]', list).forEach((b) => b.onclick = () => { st.parts.splice(Number(b.dataset.pdel), 1); renderParts(); });
+      $$('[data-pc2x]', list).forEach((b) => b.onclick = () => { st.parts[Number(b.dataset.pc2x)].c2 = null; renderParts(); });
+      $$('[data-pc2]', list).forEach((b) => b.onclick = async () => {
+        const i = Number(b.dataset.pc2);
+        if (!ctx.isCoach) { const c = await c2Status(); if (!c.connected) { toast('Bitte zuerst unter „Heute“ Concept2 verbinden'); return; } }
+        b.disabled = true; b.textContent = 'Lädt …';
+        try {
+          const r = await api('c2Results', { date: snapDate(), athlete: ctx.isCoach ? ctx.athlete.name : undefined });
+          const ws = (r.workouts || []).filter((w) => w.type !== 'bike' || /rad|spin/i.test(st.parts[i].sport));
+          const apply = (w) => { const p = st.parts[i]; p.minutes = String(Math.round(w.time / 60)); p.km = w.dist ? String(Math.round(w.dist) / 1000).replace('.', ',') : p.km; if (w.hr) p.hr = String(w.hr); p.c2 = w; renderParts(); toast('Concept2-Daten übernommen'); };
+          if (!ws.length) { toast('Kein Concept2-Workout am ' + fmtShort(snapDate()) + ' gefunden'); b.disabled = false; b.textContent = 'Concept2'; return; }
+          if (ws.length === 1) return apply(ws[0]);
+          const box = $(`[data-pick="${i}"]`, list);
+          box.innerHTML = '<div class="faint">Welches Workout?</div>' + ws.map((w, k) => `<button type="button" class="btn small secondary block mt" data-w2="${k}">${esc(String(w.date).slice(11, 16))} · ${esc(c2Summary(w))}</button>`).join('');
+          $$('[data-w2]', box).forEach((x) => x.onclick = () => apply(ws[Number(x.dataset.w2)]));
+          b.disabled = false; b.textContent = 'Concept2';
+        } catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Concept2'; }
+      });
       $$('[data-pcam]', list).forEach((inp) => inp.onchange = async () => { const i = Number(inp.dataset.pcam); const p = st.parts[i]; await addFiles(inp, p.sport || 'Bestandteil ' + (i + 1)); renderParts(); });
       updateTotal();
     }
@@ -1122,7 +1199,7 @@
       const weights = $$('[data-w]', body).map((el) => ({ name: el.dataset.wname, kg: el.value.trim() })).filter((w) => w.kg !== '');
       const isK = st.type === 'kraft';
       const parts = isK ? [] : st.parts.filter((p) => p.sport || String(p.minutes).trim() || String(p.km).trim() || String(p.hr).trim())
-        .map((p) => ({ sport: p.sport || 'Sonstiges', minutes: String(p.minutes).trim(), km: String(p.km).trim(), hr: String(p.hr).trim() }));
+        .map((p) => ({ sport: p.sport || 'Sonstiges', minutes: String(p.minutes).trim(), km: String(p.km).trim(), hr: String(p.hr).trim(), c2: p.c2 || undefined }));
       const tot = partsTotal();
       const sportList = [...new Set(parts.map((p) => p.sport))];
       const payload = {
@@ -1208,6 +1285,7 @@
   // ------------------------------------------------------------ Start
   async function boot() {
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    try { const q = new URLSearchParams(location.search); if (q.get('code')) { store.set('c2code', q.get('code')); history.replaceState(null, '', location.pathname); } } catch (e) {}
     if (!S.auth) return showLogin();
     // Sofort aus dem Cache zeigen, dann aktualisieren
     const cached = store.get('cache_athlete'), cachedC = store.get('cache_coach');
@@ -1216,6 +1294,7 @@
     try {
       await loadAll(!!S.user);
       render();
+      if (store.get('c2code')) { await c2Finish(); render(); }
     } catch (e) {
       if (/PIN|Name/.test(e.message)) { S.user = null; store.del('auth'); S.auth = null; return showLogin(e.message); }
       if (S.user) toast('Offline – zeige gespeicherte Daten'); else showLogin(e.message);
