@@ -263,7 +263,7 @@
   function c2Summary(c) {
     const iv = c.iv || [];
     const ivTxt = c.isInterval && iv.length ? iv.length + ' Intervalle · ' + iv.map((x) => fmtSplit(x[1] ? x[0] * 500 / x[1] : 0)).join(' / ') : '';
-    return [(c.dist ? fmtNum(c.dist / 1000, 2) + ' km' : ''), (c.time ? fmtMin(c.time / 60) : ''), (c.split ? 'Ø ' + fmtSplit(c.split) + ' /500 m' : ''), (c.watt ? c.watt + ' W' : ''), (c.spm ? 'SF ' + c.spm : ''), (c.hr ? 'HF ' + c.hr : ''), ivTxt].filter(Boolean).join(' · ');
+    return [(c.dist ? fmtNum(c.dist / 1000, 2) + ' km' : ''), (c.time ? fmtMin((c.time + (c.rest || 0)) / 60) + (c.rest ? ' inkl. ' + fmtMin(c.rest / 60) + ' Pause' + (c.restDist ? ' (' + fmtNum(c.restDist) + ' m)' : '') : '') : ''), (c.split ? 'Ø ' + fmtSplit(c.split) + ' /500 m' : ''), (c.watt ? c.watt + ' W' : ''), (c.spm ? 'SF ' + c.spm : ''), (c.hr ? 'HF ' + c.hr : ''), ivTxt].filter(Boolean).join(' · ');
   }
   function c2Chart(c, w) {
     w = w || chartW(); const h = 120, pad = { l: 34, r: 30, t: 8, b: 16 };
@@ -1150,7 +1150,7 @@
         try {
           const r = await api('c2Results', { date: snapDate(), athlete: ctx.isCoach ? ctx.athlete.name : undefined });
           const ws = (r.workouts || []).filter((w) => w.type !== 'bike' || /rad|spin/i.test(st.parts[i].sport));
-          const apply = (w) => { const p = st.parts[i]; p.minutes = String(Math.round(w.time / 60)); p.km = w.dist ? String(Math.round(w.dist) / 1000).replace('.', ',') : p.km; if (w.hr) p.hr = String(w.hr); p.c2 = w; renderParts(); toast('Concept2-Daten übernommen'); };
+          const apply = (w) => { const p = st.parts[i]; p.minutes = String(Math.round((w.time + (w.rest || 0)) / 60)); p.km = w.dist ? String(Math.round(w.dist) / 1000).replace('.', ',') : p.km; if (w.hr) p.hr = String(w.hr); p.c2 = w; renderParts(); toast('Concept2-Daten übernommen'); };
           if (!ws.length) { toast('Kein Concept2-Workout am ' + fmtShort(snapDate()) + ' gefunden'); b.disabled = false; b.textContent = 'Concept2'; return; }
           if (ws.length === 1) return apply(ws[0]);
           const box = $(`[data-pick="${i}"]`, list);
