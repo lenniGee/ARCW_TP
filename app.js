@@ -968,7 +968,8 @@
       rpe: log ? log.rpe : null,
       files: [],
       hints: null,
-      parts: null
+      parts: null,
+      extraEx: []
     };
     const emptyPart = () => ({ sport: '', minutes: '', km: '', hr: '' });
     const clonePart = (p) => ({ sport: p.sport || '', minutes: p.minutes == null ? '' : p.minutes, km: p.km == null ? '' : p.km, hr: p.hr == null ? '' : p.hr, c2: p.c2 || null });
@@ -976,8 +977,9 @@
     else if (log && log.type !== 'kraft') st.parts = [clonePart({ sport: log.sport, minutes: log.minutes, km: log.km, hr: log.hr })];
     else if (unit && unit.type !== 'kraft' && !st.alt) st.parts = partsFromUnit(unit, false).map(clonePart);
     else st.parts = [];
+    if (st.alt && log && !st.parts.length && log.type === 'kraft') st.parts = [clonePart({ sport: 'Kraft', minutes: log.minutes, km: '', hr: '' })];
     if (st.alt && !log) st.type = 'ausdauer';
-    if (st.type !== 'kraft' && !st.parts.length) st.parts = [emptyPart()];
+    if ((st.type !== 'kraft' || st.alt) && !st.parts.length) st.parts = [emptyPart()];
     const prevHints = log && log.hints ? log.hints : [];
     const hintList = () => {
       if (st.alt) return [];
@@ -989,6 +991,7 @@
       const ex = unit && !st.alt ? kraftExercises(ctx, unit) : { list: [] };
       let names = ex.list.filter((e) => e.weighted !== false && !/^ergo/i.test(e.block || '')).map((e) => ({ name: e.name, info: [e.sets && e.reps ? e.sets + '×' + e.reps : e.reps, e.material].filter(Boolean).join(' · ') }));
       if (log && log.weights) log.weights.forEach((w) => { if (!names.some((n) => n.name === w.name)) names.push({ name: w.name, info: '' }); });
+      st.extraEx.forEach((n) => { if (!names.some((x) => x.name === n)) names.push({ name: n, info: '' }); });
       return names;
     };
 
@@ -1005,7 +1008,8 @@
 
     const body = $('#mbody');
     function draw() {
-      const isKraft = st.type === 'kraft';
+      const isKraft = st.type === 'kraft' && !st.alt;
+      const altKraft = st.alt && st.parts.some((p) => p.sport === 'Kraft');
       let h = '';
       if (isExtra) {
         h += `<div class="formsec"><h3>Einheit</h3>
@@ -1038,9 +1042,6 @@
       if (unit) {
         h += `<label class="check altbox"><input type="checkbox" id="falt" ${st.alt ? 'checked' : ''}><span><b>Alternatives Programm</b> – statt der geplanten Einheit etwas anderes gemacht (z. B. Laufen statt Rudern).</span></label>`;
       }
-      if (st.alt) {
-        h += `<div class="formsec"><h3>Was hast du stattdessen gemacht?</h3><label class="f">Art</label><select class="in" id="ftype"><option value="ausdauer" ${!isKraft ? 'selected' : ''}>Ausdauer</option><option value="kraft" ${isKraft ? 'selected' : ''}>Kraft</option></select></div>`;
-      }
       if (unit && unit.ersatz && !st.alt) {
         h += `<label class="check mt"><input type="checkbox" id="fersatz" ${st.ersatz ? 'checked' : ''}><span>Ersatz-Programm gemacht (Wasser ist ausgefallen)</span></label>`;
       }
@@ -1051,26 +1052,31 @@
           return `<label class="check"><input type="checkbox" data-hint="${i}" ${prev && prev.done ? 'checked' : ''}><span>${esc(t)}</span></label>`;
         }).join('')}</div>`;
       }
-      h += `<div class="formsec"><h3>${isKraft ? 'Kraft' : 'Ausdauer'}</h3>`;
+      h += `<div class="formsec"><h3>${st.alt ? 'Was hast du stattdessen gemacht?' : isKraft ? 'Kraft' : 'Ausdauer'}</h3>`;
       const minVal = log ? (log.minutes != null ? log.minutes : '') : (unit && unit.minutes ? unit.minutes : '');
-      if (!isKraft) {
-        h += `<div class="faint" style="margin:2px 0 8px">${st.alt ? 'Trag ein, was du gemacht hast – mehrere Bestandteile möglich.' : 'Bestandteile der Einheit – aus dem Plan vorausgefüllt. Anpassen, löschen oder ergänzen.'}</div>
-          <div id="plist"></div>
-          <button type="button" class="btn ghost small" id="addpart">+ Bestandteil hinzufügen</button>
-          <div class="ptotal" id="ptotal"></div>`;
-      } else {
+      const weightBlock = () => {
         const ex = exList();
-        h += `<label class="f">Minuten</label><input class="in" id="fmin" inputmode="numeric" value="${esc(minVal)}">`;
-        h += `<label class="f">Gewichte (kg)</label><div id="wlist">`;
+        let w = `<label class="f">Gewichte (kg)</label><div id="wlist">`;
         ex.forEach((e, i) => {
           const prev = log && log.weights ? log.weights.find((w) => w.name === e.name) : null;
           const lw = lastWeight(ctx, e.name, log ? addDays(d, -1) : d);
-          h += `<div class="wrow"><div class="nm">${esc(e.name)}<small>${esc(e.info)}${lw ? (e.info ? ' · ' : '') + 'zuletzt ' + fmtNum(lw.kg, 1) + ' kg' : ''}</small></div>
+          w += `<div class="wrow"><div class="nm">${esc(e.name)}<small>${esc(e.info)}${lw ? (e.info ? ' · ' : '') + 'zuletzt ' + fmtNum(lw.kg, 1) + ' kg' : ''}</small></div>
             <input class="in" data-w="${i}" data-wname="${esc(e.name)}" inputmode="decimal" placeholder="kg" value="${esc(prev && prev.kg != null ? prev.kg : '')}"></div>`;
         });
-        h += `</div><button class="btn ghost small" id="addex">+ Übung hinzufügen</button>
+        w += `</div><button class="btn ghost small" id="addex">+ Übung hinzufügen</button>
           <div class="grid2"><div><label class="f">Ergo-Belastung</label><input class="in" id="fergo" placeholder="z. B. 3× 250 m" value="${esc(log ? log.ergo : '')}"></div>
           <div><label class="f">Split</label><input class="in" id="fsplit" placeholder="z. B. 1:45" value="${esc(log ? log.split : '')}"></div></div>`;
+        return w;
+      };
+      if (!isKraft) {
+        h += `<div class="faint" style="margin:2px 0 8px">${st.alt ? 'Sportart wählen – mehrere Bestandteile möglich. Bei „Kraft“ kannst du unten Übungen und Gewichte eintragen.' : 'Bestandteile der Einheit – aus dem Plan vorausgefüllt. Anpassen, löschen oder ergänzen.'}</div>
+          <div id="plist"></div>
+          <button type="button" class="btn ghost small" id="addpart">+ Bestandteil hinzufügen</button>
+          <div class="ptotal" id="ptotal"></div>`;
+        if (altKraft) h += `<div class="altkraft" style="margin-top:12px"><h3 style="margin:0 0 4px">Kraft</h3>${weightBlock()}</div>`;
+      } else {
+        h += `<label class="f">Minuten</label><input class="in" id="fmin" inputmode="numeric" value="${esc(minVal)}">`;
+        h += weightBlock();
       }
       h += `</div>`;
       h += `<div class="formsec"><h3>Belastungsempfinden (RPE)</h3><div class="faint" style="margin-bottom:8px">1 = sehr leicht · 10 = maximal</div>
@@ -1115,6 +1121,7 @@
         if (!name) return;
         const wl = $('#wlist');
         const i = $$('[data-w]', wl).length;
+        st.extraEx.push(name);
         wl.insertAdjacentHTML('beforeend', `<div class="wrow"><div class="nm">${esc(name)}</div><input class="in" data-w="${i}" data-wname="${esc(name)}" inputmode="decimal" placeholder="kg"></div>`);
       };
       restore();
@@ -1155,7 +1162,8 @@
       const list = $('#plist');
       if (!list) return;
       list.innerHTML = st.parts.map((p, i) => {
-        const opts = SPORTS.concat(p.sport && !SPORTS.includes(p.sport) ? [p.sport] : []);
+        const base = st.alt ? SPORTS.slice(0, SPORTS.indexOf('Rumpfkraft')).concat(['Kraft'], SPORTS.slice(SPORTS.indexOf('Rumpfkraft'))) : SPORTS;
+        const opts = base.concat(p.sport && !base.includes(p.sport) ? [p.sport] : []);
         return `<div class="part" data-p="${i}">
           <div class="part-top"><select class="in" data-pf="sport" aria-label="Sportart"><option value="">Sportart wählen …</option>${opts.map((x) => `<option ${x === p.sport ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
           ${/ergo/i.test(p.sport) ? `<button type="button" class="btn small secondary c2btn" data-pc2="${i}" title="Daten aus dem Concept2-Logbook laden">Concept2</button>` : ''}
@@ -1172,11 +1180,15 @@
         const i = Number(row.dataset.p);
         $$('[data-pf]', row).forEach((el) => {
           const f = el.dataset.pf;
-          const upd = () => { st.parts[i][f] = el.value; updateTotal(); if (f === 'sport' && el.tagName === 'SELECT') renderParts(); };
+          const upd = () => {
+            const wasK = st.parts.some((q) => q.sport === 'Kraft');
+            st.parts[i][f] = el.value; updateTotal();
+            if (f === 'sport' && el.tagName === 'SELECT') { if (st.alt && wasK !== st.parts.some((q) => q.sport === 'Kraft')) { snapshot(); draw(); } else renderParts(); }
+          };
           el.addEventListener('input', upd); el.addEventListener('change', upd);
         });
       });
-      $$('[data-pdel]', list).forEach((b) => b.onclick = () => { st.parts.splice(Number(b.dataset.pdel), 1); renderParts(); });
+      $$('[data-pdel]', list).forEach((b) => b.onclick = () => { const wasK = st.parts.some((q) => q.sport === 'Kraft'); st.parts.splice(Number(b.dataset.pdel), 1); if (st.alt && wasK !== st.parts.some((q) => q.sport === 'Kraft')) { snapshot(); draw(); } else renderParts(); });
       $$('[data-pc2x]', list).forEach((b) => b.onclick = () => { st.parts[Number(b.dataset.pc2x)].c2 = null; renderParts(); });
       $$('[data-pc2]', list).forEach((b) => b.onclick = async () => {
         const i = Number(b.dataset.pc2);
@@ -1232,7 +1244,7 @@
       const hl = hintList();
       const hints = hl.map((t, i) => ({ text: t, done: !!($(`[data-hint="${i}"]`, body) || {}).checked }));
       const weights = $$('[data-w]', body).map((el) => ({ name: el.dataset.wname, kg: el.value.trim() })).filter((w) => w.kg !== '');
-      const isK = st.type === 'kraft';
+      const isK = st.type === 'kraft' && !st.alt;
       const parts = isK ? [] : st.parts.filter((p) => p.sport || String(p.minutes).trim() || String(p.km).trim() || String(p.hr).trim())
         .map((p) => ({ sport: p.sport || 'Sonstiges', minutes: String(p.minutes).trim(), km: String(p.km).trim(), hr: String(p.hr).trim(), c2: p.c2 || undefined }));
       const tot = partsTotal();
@@ -1244,7 +1256,7 @@
         planDate: unit ? unit.date : '',
         unitKey: unit ? unit.key : (log ? log.unitKey : 'extra|' + Date.now()),
         title: isExtra ? (val('ftitle') || 'Zusatzeinheit') : title,
-        type: st.type,
+        type: st.alt ? (parts.length && parts.every((p) => p.sport === 'Kraft') ? 'kraft' : 'ausdauer') : st.type,
         sport: isK ? 'Kraft' : sportList.join(' + '),
         ersatz: st.alt ? false : st.ersatz,
         alt: st.alt,
