@@ -299,7 +299,7 @@ function athleteData_(user, athleteName) {
   var kraft = readKraft_(a.kraft);
   var logs = readLogs_(a.name);
   var isCoach = user.role === 'coach';
-  if (!isCoach) logs.forEach(function (l) { l.files = l.files.map(function (f) { return { name: f.name }; }); });
+  if (!isCoach) logs.forEach(function (l) { l.files = l.files.map(function (f) { return { name: f.name, id: f.id, url: f.url, part: f.part || '' }; }); });
   return {
     user: publicUser_(user),
     athlete: publicUser_(a),
@@ -388,6 +388,7 @@ function saveLog_(user, log, files) {
           String(log.title || 'Einheit').replace(/[^\wäöüÄÖÜß\-]+/g, '_').slice(0, 40) +
           (part ? '_' + part.replace(/[^\wäöüÄÖÜß\-]+/g, '_') : '') + '_' + (stored.length + 1) + '.' + ext;
         var file = folder.createFile(Utilities.newBlob(bytes, f.mime || 'image/jpeg', fname));
+        try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) { /* Freigabe optional */ }
         stored.push({ id: file.getId(), url: file.getUrl(), name: fname, part: part });
       });
     }
@@ -497,6 +498,18 @@ function blank_(v) {
   if (v === '' || v == null) return '';
   var n = Number(String(v).replace(',', '.'));
   return isNaN(n) ? '' : n;
+}
+
+/** Im Editor ausführen: alle bisherigen Fotos per Link lesbar machen (damit Sportler sie in der App öffnen können). */
+function fotosFreigeben() {
+  var root = DriveApp.getFolderById(settings_().folderId), n = 0, err = 0;
+  var dirs = root.getFolders();
+  while (dirs.hasNext()) {
+    var files = dirs.next().getFiles();
+    while (files.hasNext()) { var f = files.next(); try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); n++; } catch (e) { err++; } }
+  }
+  Logger.log(n + ' Fotos freigegeben, ' + err + ' Fehler');
+  return n;
 }
 
 function athleteFolder_(name) {
