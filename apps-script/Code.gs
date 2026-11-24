@@ -443,6 +443,7 @@ function saveLog_(user, log, files) {
     ensureLogHeader_(sh);
     if (existing) {
       sh.getRange(existing.row, 2).setNumberFormat('@');
+      sh.getRange(existing.row, 20, 1, 3).setNumberFormat('@'); // Ergo-Belastung, Split, Kommentar als Text (keine Datums-/Zahl-Umwandlung)
       sh.getRange(existing.row, 1, 1, row.length).setValues([row]);
     } else {
       sh.appendRow(row);
@@ -450,6 +451,8 @@ function saveLog_(user, log, files) {
       sh.getRange(lr, 2).setNumberFormat('@').setValue(ts);
       sh.getRange(lr, 6).setNumberFormat('@').setValue(log.date);
       sh.getRange(lr, 26).setNumberFormat('@').setValue(log.planDate || '');
+      // Ergo-Belastung, Split, Kommentar 1:1 als Text (sonst macht Sheets aus "1.45" o. ä. ein Datum)
+      sh.getRange(lr, 20, 1, 3).setNumberFormat('@').setValues([[log.ergo || '', log.split || '', log.comment || '']]);
     }
     return { id: id, files: stored.length };
   } finally {
