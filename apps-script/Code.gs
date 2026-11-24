@@ -306,6 +306,7 @@ function athleteData_(user, athleteName) {
     settings: { startDate: settings_().startDate },
     plan: plan,
     kraft: kraft,
+    zones: typeof c2ZonesFromSheet_ === 'function' ? (c2ZonesFromSheet_()[a.name] || null) : null,
     logs: logs
   };
 }
@@ -324,6 +325,7 @@ function coachData_(user) {
     athletes: access.map(publicUser_),
     plans: plans,
     kraft: kraft,
+    zones: typeof c2ZonesFromSheet_ === 'function' ? c2ZonesFromSheet_() : {},
     logs: readLogs_(null)
   };
 }
