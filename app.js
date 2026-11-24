@@ -88,11 +88,12 @@
         kraft: a.kraft ? C.kraft[a.kraft] : null,
         logs: C.logs.filter((l) => l.athlete === a.name),
         settings: C.settings,
+        zones: C.zones ? C.zones[a.name] || null : null,
         isCoach: true
       };
     }
     const D = S.data;
-    return { athlete: D.athlete, plan: D.plan, kraft: D.kraft, logs: D.logs, settings: D.settings, isCoach: false };
+    return { athlete: D.athlete, plan: D.plan, kraft: D.kraft, logs: D.logs, settings: D.settings, zones: D.zones || null, isCoach: false };
   }
 
   function logsForUnit(ctx, unit) { return ctx.logs.filter((l) => l.unitKey === unit.key); }
@@ -302,7 +303,13 @@
     }
     // Kurven
     const pc = (c.pc || []).map((v) => (v > 60 && v < 300 ? v : 0)), hc = (c.hc || []).map((v) => (v > 40 ? v : 0));
-    const chart = (arr, top, h, color, label, fmt, invert) => {
+    const ZC = ['#9cc3f0', '#3f8ee0', '#0d3a7a', '#eda100', '#eb6834', '#b0272a'];
+    const Z = meta.zones && meta.zones.sp && meta.zones.sp.length >= 5 ? meta.zones : null;
+    const zSp = Z ? (v) => { for (let k = 0; k < 5; k++) if (v >= Z.sp[k]) return k; return 5; } : null;
+    const zHr = Z && Z.hr && Z.hr.length >= 5 ? (v) => { for (let k = 0; k < 5; k++) if (v < Z.hr[k]) return k; return 5; } : null;
+    const spBands = zSp ? [0, 1, 2, 3, 4, 5].map((k) => [k === 5 ? 0 : Z.sp[k], k === 0 ? 999 : Z.sp[k - 1]]) : null;
+    const hrBands = zHr ? [0, 1, 2, 3, 4, 5].map((k) => [k === 0 ? 0 : Z.hr[k - 1], k === 5 ? 999 : Z.hr[k]]) : null;
+    const chart = (arr, top, h, color, label, fmt, invert, zf, bands) => {
       const ok = arr.filter(Boolean); if (!ok.length) return top;
       const lo = Math.min(...ok), hi = Math.max(...ok), pad = (hi - lo) * 0.1 || 2, a = lo - pad, b = hi + pad;
       const x0 = 130, x1 = W - 48, n = arr.length;
@@ -312,14 +319,28 @@
       g.fillStyle = '#6b737c'; g.font = F(22); g.textAlign = 'right';
       g.fillText(fmt(invert ? lo : hi), x0 - 10, top + 20); g.fillText(fmt(invert ? hi : lo), x0 - 10, top + h);
       g.textAlign = 'left';
-      g.strokeStyle = color; g.lineWidth = 4; g.beginPath(); let pen = false;
-      arr.forEach((v, i) => { const x = x0 + (x1 - x0) * (i + 0.5) / n; if (!v) { pen = false; return; } if (pen) g.lineTo(x, yy(v)); else g.moveTo(x, yy(v)); pen = true; });
-      g.stroke();
+      const px = (i) => x0 + (x1 - x0) * (i + 0.5) / n;
+      if (bands) bands.forEach(([v0, v1], k) => {
+        const lo2 = Math.max(Math.min(v0, v1), a), hi2 = Math.min(Math.max(v0, v1), b); if (hi2 <= lo2) return;
+        const ya = yy(lo2), yb = yy(hi2); g.globalAlpha = 0.16; g.fillStyle = ZC[k]; g.fillRect(x0, Math.min(ya, yb), x1 - x0, Math.abs(ya - yb)); g.globalAlpha = 1;
+      });
+      g.lineWidth = zf ? 6 : 4; g.lineCap = 'round';
+      if (zf) {
+        for (let i = 1; i < n; i++) { const a0 = arr[i - 1], a1 = arr[i]; if (!a0 || !a1) continue; g.strokeStyle = ZC[zf((a0 + a1) / 2)]; g.beginPath(); g.moveTo(px(i - 1), yy(a0)); g.lineTo(px(i), yy(a1)); g.stroke(); }
+        // Legende
+        let lx = W - 48; g.font = F(20, 700); g.textAlign = 'right';
+        for (let k = 5; k >= 0; k--) { g.fillStyle = '#6b737c'; g.fillText('Z' + (k + 1), lx, top - 14); lx -= g.measureText('Z' + (k + 1)).width + 6; g.fillStyle = ZC[k]; g.fillRect(lx - 16, top - 30, 16, 16); lx -= 30; }
+        g.textAlign = 'left';
+      } else {
+        g.strokeStyle = color; g.beginPath(); let pen = false;
+        arr.forEach((v, i) => { if (!v) { pen = false; return; } if (pen) g.lineTo(px(i), yy(v)); else g.moveTo(px(i), yy(v)); pen = true; });
+        g.stroke();
+      }
       return top + h + 60;
     };
     y = Math.max(y, 470) + 40;
-    y = chart(pc, y, 190, '#1c5cab', 'SPLIT /500 M (schneller = oben)', fmtSplit, true);
-    y = chart(hc, y, 190, '#c62828', 'PULS (BPM)', (v) => String(Math.round(v)), false);
+    y = chart(pc, y, 190, '#1c5cab', zSp ? 'SPLIT /500 M · WATT-ZONEN' : 'SPLIT /500 M (schneller = oben)', fmtSplit, true, zSp, spBands);
+    y = chart(hc, y, 190, '#c62828', zHr ? 'PULS (BPM) · PULS-ZONEN' : 'PULS (BPM)', (v) => String(Math.round(v)), false, zHr, hrBands);
     g.fillStyle = '#8b939c'; g.font = F(20); g.fillText('Aus dem Concept2-Logbook geladen · ARCW Training', 48, H - 24);
     return { data: cv.toDataURL('image/jpeg', 0.85), mime: 'image/jpeg' };
   }
@@ -1335,7 +1356,7 @@
       if (!st.sick && !st.missed) {
         const hadImg = (log && (log.files || []).some((f) => /Concept2/.test(f.part || ''))) || st.files.some((f) => /Concept2/.test(f.part || ''));
         if (!hadImg) parts.filter((p) => p.c2 && p.c2.id).forEach((p) => {
-          try { const img = c2Image(p.c2, { sport: p.sport, name: ctx.athlete && ctx.athlete.name, date: fmtShort(payload.date) }); img.part = p.sport + ' · Concept2'; st.files.push(img); } catch (e) { /* Bild optional */ }
+          try { const img = c2Image(p.c2, { sport: p.sport, name: ctx.athlete && ctx.athlete.name, date: fmtShort(payload.date), zones: ctx.zones }); img.part = p.sport + ' · Concept2'; st.files.push(img); } catch (e) { /* Bild optional */ }
         });
       }
       if (!ctx.isCoach && payload.date < minLogDate()) { $('#merr').textContent = 'Einheiten können nur bis zu ' + BACKDAYS + ' Tage rückwirkend eingetragen werden (ab ' + fmtShort(minLogDate()) + ').'; return; }
