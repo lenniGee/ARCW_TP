@@ -858,18 +858,25 @@
   }
 
   // ------------------------------------------------------------ Bestandteile aus dem Ablauf erkennen
-  const SPORTS = ['Rudern', 'Ruderbecken', 'Ergo', 'Rad/Spinning', 'Laufen', 'Schwimmen', 'Hallensport', 'Mobilisation', 'Dehnen', 'Rumpf/Athletik', 'Mobilität/Yoga', 'Sonstiges'];
+  const SPORTS = ['Rudern', 'Ruderbecken', 'Ergo', 'Rad', 'Spinning', 'Inliner', 'Laufen', 'Schwimmen', 'Hallensport', 'Rumpfkraft', 'Athletik', 'Athletiklehrgang', 'Mobilisation', 'Yoga', 'Dehnen', 'Sonstiges'];
+  // alte Sammel-Sportarten (aus dem Plan-Parser) auf die neuen Einzel-Sportarten abbilden
+  const LEGACY_SPORT = { 'Rad/Spinning': 'Rad', 'Rumpf/Athletik': 'Athletik', 'Mobilität/Yoga': 'Yoga' };
   const SPORT_KEYS = [
     ['Ruderbecken', /ruderbecken/i],
     ['Mobilisation', /mobilisation|mobi\b|mobi-|mobilisier/i],
     ['Dehnen', /dehnen|stretch|faszienrolle/i],
-    ['Rumpf/Athletik', /rumpf|core|stabi|athletik|plank/i],
+    ['Athletiklehrgang', /athletiklehrgang|athletik-lehrgang|lehrgang/i],
+    ['Rumpfkraft', /rumpf|core|stabi|plank/i],
+    ['Athletik', /athletik/i],
     ['Ergo', /ergo/i],
-    ['Rad/Spinning', /bike|spinning|\brad\b|rad\/|einrollen|radfahren/i],
+    ['Spinning', /spinning/i],
+    ['Rad', /bike|\brad\b|rad\/|einrollen|radfahren/i],
+    ['Inliner', /inliner|inline|skaten|skating/i],
     ['Laufen', /lauf|traben|jogg/i],
     ['Schwimmen', /schwimm/i],
     ['Hallensport', /halle|hallensport|spiele/i],
-    ['Mobilität/Yoga', /yoga|mobilität/i],
+    ['Yoga', /yoga/i],
+    ['Mobilisation', /mobilität/i],
     ['Rudern', /rudern|einrudern|ausrudern|boot|kleinboot/i]
   ];
   function sportOf(text, fallback) {
@@ -895,7 +902,7 @@
   }
   function partsFromSections(sec, unitSport) {
     if (!sec) return [];
-    const fb = unitSport && unitSport !== 'Kraft' ? unitSport : 'Sonstiges';
+    const fb = unitSport && unitSport !== 'Kraft' ? (LEGACY_SPORT[unitSport] || unitSport) : 'Sonstiges';
     const raw = [];
     ['warmup', 'main', 'cooldown', 'other'].forEach((k) => {
       const t = sec[k];
