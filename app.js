@@ -266,6 +266,63 @@
     const ivTxt = c.isInterval && iv.length ? iv.length + ' Intervalle · ' + iv.map((x) => fmtSplit(x[1] ? x[0] * 500 / x[1] : 0)).join(' / ') : '';
     return [(c.dist ? fmtNum(c.dist / 1000, 2) + ' km' : ''), (c.time ? fmtMin((c.time + (c.rest || 0)) / 60) + (c.rest ? ' inkl. ' + fmtMin(c.rest / 60) + ' Pause' + (c.restDist ? ' (' + fmtNum(c.restDist) + ' m)' : '') : '') : ''), (c.split ? 'Ø ' + fmtSplit(c.split) + ' /500 m' : ''), (c.watt ? c.watt + ' W' : ''), (c.spm ? 'SF ' + c.spm : ''), (c.hr ? 'HF ' + c.hr : ''), ivTxt].filter(Boolean).join(' · ');
   }
+  // Bild aus Concept2-Daten (wird beim Speichern wie ein Foto mit abgelegt)
+  function c2Image(c, meta) {
+    const W = 1080, cv = document.createElement('canvas');
+    const iv = c.iv || [];
+    const mmss = (t) => { t = Math.round(t || 0); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), x = t % 60; return (h ? h + ':' + pad(m) : m) + ':' + pad(x); };
+    const H = 490 + (iv.length > 1 ? 80 + 46 * iv.length : 0) + 40 + 2 * 250 + 40;
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    const F = (sz, wt) => (wt || 400) + ' ' + sz + 'px -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#1d5c3f'; g.fillRect(0, 0, W, 150);
+    g.fillStyle = '#fff'; g.font = F(46, 700); g.fillText('Concept2 · ' + (meta.sport || 'Ergo'), 48, 72);
+    g.font = F(28); g.fillText([meta.name, meta.date, String(c.date || '').slice(11, 16) + ' Uhr', c.wt].filter(Boolean).join(' · '), 48, 118);
+    // Kennzahlen
+    const kp = [['Zeit', mmss(c.time)], ['Distanz', c.dist ? fmtNum(c.dist) + ' m' : '–'], ['Ø Split', fmtSplit(c.split) + ' /500'], ['Ø Watt', c.watt ? c.watt + ' W' : '–'], ['Ø SF', c.spm || '–'], ['Ø HF', c.hr || '–'], ['Pause', c.rest ? mmss(c.rest) : '–'], ['gesamt', mmss(c.time + (c.rest || 0))]];
+    kp.forEach(([l, v], i) => {
+      const x = 48 + (i % 4) * 250, y = 200 + Math.floor(i / 4) * 110;
+      g.fillStyle = '#6b737c'; g.font = F(24); g.fillText(l, x, y);
+      g.fillStyle = '#1d232b'; g.font = F(40, 700); g.fillText(String(v), x, y + 48);
+    });
+    // Intervalle
+    let y = 450;
+    if (iv.length > 1) {
+      g.fillStyle = '#6b737c'; g.font = F(22, 700);
+      const cols = [['#', 48], ['Zeit', 110], ['Meter', 290], ['Split', 450], ['SF', 640], ['HF', 730], ['Pause', 840]];
+      cols.forEach(([t, x]) => g.fillText(t.toUpperCase(), x, y));
+      g.strokeStyle = '#cfd4da'; g.lineWidth = 2; g.beginPath(); g.moveTo(48, y + 14); g.lineTo(W - 48, y + 14); g.stroke();
+      iv.forEach((r, k) => {
+        y += 46; g.fillStyle = '#1d232b'; g.font = F(28);
+        const vals = [k + 1, mmss(r[0]), fmtNum(r[1]), r[1] ? fmtSplit(r[0] * 500 / r[1]) : '–', r[2] || '–', r[3] || '–', r[4] ? mmss(r[4]) + (r[5] ? ' / ' + r[5] + ' m' : '') : '–'];
+        vals.forEach((v, j) => g.fillText(String(v), cols[j][1], y));
+      });
+      y += 40;
+    }
+    // Kurven
+    const pc = (c.pc || []).map((v) => (v > 60 && v < 300 ? v : 0)), hc = (c.hc || []).map((v) => (v > 40 ? v : 0));
+    const chart = (arr, top, h, color, label, fmt, invert) => {
+      const ok = arr.filter(Boolean); if (!ok.length) return top;
+      const lo = Math.min(...ok), hi = Math.max(...ok), pad = (hi - lo) * 0.1 || 2, a = lo - pad, b = hi + pad;
+      const x0 = 130, x1 = W - 48, n = arr.length;
+      const yy = (v) => invert ? top + h * (v - a) / (b - a) : top + h - h * (v - a) / (b - a);
+      g.fillStyle = '#6b737c'; g.font = F(22, 700); g.fillText(label, 48, top - 14);
+      g.strokeStyle = '#eceef1'; g.lineWidth = 2; g.strokeRect(x0, top, x1 - x0, h);
+      g.fillStyle = '#6b737c'; g.font = F(22); g.textAlign = 'right';
+      g.fillText(fmt(invert ? lo : hi), x0 - 10, top + 20); g.fillText(fmt(invert ? hi : lo), x0 - 10, top + h);
+      g.textAlign = 'left';
+      g.strokeStyle = color; g.lineWidth = 4; g.beginPath(); let pen = false;
+      arr.forEach((v, i) => { const x = x0 + (x1 - x0) * (i + 0.5) / n; if (!v) { pen = false; return; } if (pen) g.lineTo(x, yy(v)); else g.moveTo(x, yy(v)); pen = true; });
+      g.stroke();
+      return top + h + 60;
+    };
+    y = Math.max(y, 470) + 40;
+    y = chart(pc, y, 190, '#1c5cab', 'SPLIT /500 M (schneller = oben)', fmtSplit, true);
+    y = chart(hc, y, 190, '#c62828', 'PULS (BPM)', (v) => String(Math.round(v)), false);
+    g.fillStyle = '#8b939c'; g.font = F(20); g.fillText('Aus dem Concept2-Logbook geladen · ARCW Training', 48, H - 24);
+    return { data: cv.toDataURL('image/jpeg', 0.85), mime: 'image/jpeg' };
+  }
   function c2Chart(c, w) {
     w = w || chartW(); const h = 120, pad = { l: 34, r: 30, t: 8, b: 16 };
     const pc = (c.pc || []).map((v) => (v > 60 && v < 300 ? v : 0)), hc = (c.hc || []).map((v) => (v > 40 ? v : 0));
@@ -512,7 +569,7 @@
     });
     const rpeLogs = logs.filter((l) => l.rpe);
     const ausd = logs.filter((l) => l.type === 'ausdauer' && !l.sick && !l.missed);
-    const shots = ausd.filter((l) => l.screenshot).length;
+    const shots = ausd.filter((l) => l.screenshot || hasC2(l)).length;
     let hintsTotal = 0, hintsDone = 0;
     logs.forEach((l) => (l.hints || []).forEach((h) => { hintsTotal++; if (h.done) hintsDone++; }));
     // Wochen
@@ -1274,6 +1331,12 @@
       if (st.sick || st.missed) {
         Object.assign(payload, { sick: st.sick, missed: st.missed, sport: '', ersatz: false, minutes: 0, km: '', hr: '', parts: [], rpe: null, hints: [], weights: [], ergo: '', split: '' });
         st.files = [];
+      }
+      if (!st.sick && !st.missed) {
+        const hadImg = (log && (log.files || []).some((f) => /Concept2/.test(f.part || ''))) || st.files.some((f) => /Concept2/.test(f.part || ''));
+        if (!hadImg) parts.filter((p) => p.c2 && p.c2.id).forEach((p) => {
+          try { const img = c2Image(p.c2, { sport: p.sport, name: ctx.athlete && ctx.athlete.name, date: fmtShort(payload.date) }); img.part = p.sport + ' · Concept2'; st.files.push(img); } catch (e) { /* Bild optional */ }
+        });
       }
       if (!ctx.isCoach && payload.date < minLogDate()) { $('#merr').textContent = 'Einheiten können nur bis zu ' + BACKDAYS + ' Tage rückwirkend eingetragen werden (ab ' + fmtShort(minLogDate()) + ').'; return; }
       if (payload.date > todayISO()) { $('#merr').textContent = 'Das Datum liegt in der Zukunft.'; return; }
