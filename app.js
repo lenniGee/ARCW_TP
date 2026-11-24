@@ -1275,13 +1275,34 @@
         try {
           const r = await api('c2Results', { date: snapDate(), athlete: ctx.isCoach ? ctx.athlete.name : undefined });
           const ws = (r.workouts || []).filter((w) => w.type !== 'bike' || /rad|spin/i.test(st.parts[i].sport));
-          const apply = (w) => { const p = st.parts[i]; p.minutes = String(Math.round((w.time + (w.rest || 0)) / 60)); p.km = w.dist ? String(Math.round(w.dist) / 1000).replace('.', ',') : p.km; if (w.hr) p.hr = String(w.hr); p.c2 = w; renderParts(); toast('Concept2-Daten übernommen'); };
-          if (!ws.length) { toast('Kein Concept2-Workout am ' + fmtShort(snapDate()) + ' gefunden'); b.disabled = false; b.textContent = 'Concept2'; return; }
-          if (ws.length === 1) return apply(ws[0]);
+          const fill = (p, w) => { p.minutes = String(Math.round((w.time + (w.rest || 0)) / 60)); p.km = w.dist ? String(Math.round(w.dist) / 1000).replace('.', ',') : p.km; if (w.hr) p.hr = String(w.hr); p.c2 = w; };
+          const apply = (w) => { fill(st.parts[i], w); renderParts(); toast('Concept2-Daten übernommen'); };
+          // Workouts, die schon in einem anderen Eintrag (oder Bestandteil) stecken, nicht nochmal vorschlagen
+          const usedBy = {};
+          ctx.logs.forEach((l) => { if (log && l.id === log.id) return; (l.parts || []).forEach((q) => { if (q.c2 && q.c2.id) usedBy[String(q.c2.id)] = '„' + (l.title || 'Einheit') + '“'; }); });
+          st.parts.forEach((q, k) => { if (k !== i && q.c2 && q.c2.id) usedBy[String(q.c2.id)] = 'Bestandteil ' + (k + 1) + ' hier'; });
+          const all = ws.slice().sort((x, y) => String(x.date).localeCompare(String(y.date)));
+          const free = all.filter((w) => !usedBy[String(w.id)]);
+          const tm = (w) => String(w.date).slice(11, 16);
           const box = $(`[data-pick="${i}"]`, list);
-          box.innerHTML = '<div class="faint">Welches Workout?</div>' + ws.map((w, k) => `<button type="button" class="btn small secondary block mt" data-w2="${k}">${esc(String(w.date).slice(11, 16))} · ${esc(c2Summary(w))}</button>`).join('');
-          $$('[data-w2]', box).forEach((x) => x.onclick = () => apply(ws[Number(x.dataset.w2)]));
           b.disabled = false; b.textContent = 'Concept2';
+          if (!all.length) { toast('Kein Concept2-Workout am ' + fmtShort(snapDate()) + ' gefunden'); box.innerHTML = '<div class="faint">Kein Workout im Concept2-Logbook. ErgData lädt ein Workout erst nach dem Beenden hoch – kurz warten (Handy online), dann nochmal tippen.</div>'; return; }
+          if (!free.length) {
+            box.innerHTML = `<div class="faint">Alle Workouts vom ${esc(fmtShort(snapDate()))} sind schon eingetragen: ${all.map((w) => esc(tm(w)) + ' bei ' + esc(usedBy[String(w.id)])).join(', ')}.<br>Fehlt eins? ErgData lädt ein Workout erst nach dem Beenden hoch – kurz warten (Handy online), dann nochmal tippen.</div>`;
+            return;
+          }
+          if (free.length === 1) { apply(free[0]); if (all.length > 1) toast('Workout von ' + tm(free[0]) + ' übernommen (die anderen sind schon eingetragen)'); return; }
+          box.innerHTML = '<div class="faint">Welches Workout?</div>' + all.map((w, k) => { const u = usedBy[String(w.id)];
+            return `<button type="button" class="btn small secondary block mt" data-w2="${k}" ${u ? 'disabled' : ''}>${esc(tm(w))} · ${esc(c2Summary(w))}${u ? ' · schon bei ' + esc(u) : ''}</button>`; }).join('')
+            + (free.length > 1 ? `<button type="button" class="btn small block mt" data-wall="1">Alle ${free.length} freien Workouts übernehmen (je ein Bestandteil)</button>` : '');
+          $$('[data-w2]', box).forEach((x) => x.onclick = () => apply(all[Number(x.dataset.w2)]));
+          const wa = $('[data-wall]', box);
+          if (wa) wa.onclick = () => {
+            const sport = st.parts[i].sport || 'Ergo';
+            fill(st.parts[i], free[0]);
+            free.slice(1).forEach((w, k) => { const np = emptyPart(); np.sport = sport; fill(np, w); st.parts.splice(i + 1 + k, 0, np); });
+            renderParts(); toast(free.length + ' Workouts übernommen');
+          };
         } catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Concept2'; }
       });
       $$('[data-pcam]', list).forEach((inp) => inp.onchange = async () => { const i = Number(inp.dataset.pcam); const p = st.parts[i]; await addFiles(inp, p.sport || 'Bestandteil ' + (i + 1)); renderParts(); });
