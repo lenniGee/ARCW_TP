@@ -309,6 +309,9 @@
     const zHr = Z && Z.hr && Z.hr.length >= 5 ? (v) => { for (let k = 0; k < 5; k++) if (v < Z.hr[k]) return k; return 5; } : null;
     const spBands = zSp ? [0, 1, 2, 3, 4, 5].map((k) => [k === 5 ? 0 : Z.sp[k], k === 0 ? 999 : Z.sp[k - 1]]) : null;
     const hrBands = zHr ? [0, 1, 2, 3, 4, 5].map((k) => [k === 0 ? 0 : Z.hr[k - 1], k === 5 ? 999 : Z.hr[k]]) : null;
+    // Intervallgrenzen (Schlagdaten laufen ohne Pausen durch → Anteil an der Arbeitszeit)
+    const ivT = iv.map((r) => Number(r[0]) || 0), ivSum = ivT.reduce((x, y) => x + y, 0);
+    const marks = iv.length > 1 && ivSum ? ivT.slice(0, -1).map((t, k) => ivT.slice(0, k + 1).reduce((x, y) => x + y, 0) / ivSum) : [];
     const chart = (arr, top, h, color, label, fmt, invert, zf, bands) => {
       const ok = arr.filter(Boolean); if (!ok.length) return top;
       const lo = Math.min(...ok), hi = Math.max(...ok), pad = (hi - lo) * 0.1 || 2, a = lo - pad, b = hi + pad;
@@ -320,6 +323,14 @@
       g.fillText(fmt(invert ? lo : hi), x0 - 10, top + 20); g.fillText(fmt(invert ? hi : lo), x0 - 10, top + h);
       g.textAlign = 'left';
       const px = (i) => x0 + (x1 - x0) * (i + 0.5) / n;
+      if (marks.length) {
+        g.save(); g.strokeStyle = '#6b737c'; g.lineWidth = 1.5; g.setLineDash([8, 6]);
+        marks.forEach((f) => { const x = x0 + (x1 - x0) * f; g.beginPath(); g.moveTo(x, top); g.lineTo(x, top + h); g.stroke(); });
+        g.restore();
+        g.fillStyle = '#6b737c'; g.font = F(18, 700); g.textAlign = 'center';
+        [0].concat(marks).forEach((f, k) => { const f2 = k < marks.length ? marks[k] : 1, cx = x0 + (x1 - x0) * (f + f2) / 2; g.fillStyle = 'rgba(255,255,255,0.85)'; g.fillRect(cx - 14, top + h - 28, 28, 24); g.fillStyle = '#6b737c'; g.fillText(String(k + 1), cx, top + h - 9); });
+        g.textAlign = 'left';
+      }
       if (bands) bands.forEach(([v0, v1], k) => {
         const lo2 = Math.max(Math.min(v0, v1), a), hi2 = Math.min(Math.max(v0, v1), b); if (hi2 <= lo2) return;
         const ya = yy(lo2), yb = yy(hi2); g.globalAlpha = 0.16; g.fillStyle = ZC[k]; g.fillRect(x0, Math.min(ya, yb), x1 - x0, Math.abs(ya - yb)); g.globalAlpha = 1;
