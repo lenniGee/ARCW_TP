@@ -1291,18 +1291,35 @@
             box.innerHTML = `<div class="faint">Alle Workouts vom ${esc(fmtShort(snapDate()))} sind schon eingetragen: ${all.map((w) => esc(tm(w)) + ' bei ' + esc(usedBy[String(w.id)])).join(', ')}.<br>Fehlt eins? ErgData lädt ein Workout erst nach dem Beenden hoch – kurz warten (Handy online), dann nochmal tippen.</div>`;
             return;
           }
-          if (free.length === 1) { apply(free[0]); if (all.length > 1) toast('Workout von ' + tm(free[0]) + ' übernommen (die anderen sind schon eingetragen)'); return; }
-          box.innerHTML = '<div class="faint">Welches Workout?</div>' + all.map((w, k) => { const u = usedBy[String(w.id)];
-            return `<button type="button" class="btn small secondary block mt" data-w2="${k}" ${u ? 'disabled' : ''}>${esc(tm(w))} · ${esc(c2Summary(w))}${u ? ' · schon bei ' + esc(u) : ''}</button>`; }).join('')
-            + (free.length > 1 ? `<button type="button" class="btn small block mt" data-wall="1">Alle ${free.length} freien Workouts übernehmen (je ein Bestandteil)</button>` : '');
-          $$('[data-w2]', box).forEach((x) => x.onclick = () => apply(all[Number(x.dataset.w2)]));
-          const wa = $('[data-wall]', box);
-          if (wa) wa.onclick = () => {
+          // Reihenfolge: Workouts nach Uhrzeit passend zur Position des Bestandteils wählen
+          const isErgo = (q) => /ergo/i.test(q.sport || '');
+          const hasC = (q) => q.c2 && q.c2.id;
+          const dts = (arr) => arr.filter(hasC).map((q) => String(q.c2.date)).sort();
+          const lo = dts(st.parts.slice(0, i)).pop() || '', hi = dts(st.parts.slice(i + 1))[0] || '\uffff';
+          const cand = free.filter((w) => String(w.date) > lo && String(w.date) < hi);
+          const emptyBefore = st.parts.slice(0, i).filter((q) => isErgo(q) && !hasC(q)).length;
+          const pick = cand.length ? cand[Math.min(emptyBefore, cand.length - 1)] : free[0];
+          fill(st.parts[i], pick);
+          const fillAll = () => {
+            const targets = st.parts.map((q, k) => k).filter((k) => k === i || (isErgo(st.parts[k]) && !hasC(st.parts[k])));
             const sport = st.parts[i].sport || 'Ergo';
-            fill(st.parts[i], free[0]);
-            free.slice(1).forEach((w, k) => { const np = emptyPart(); np.sport = sport; fill(np, w); st.parts.splice(i + 1 + k, 0, np); });
-            renderParts(); toast(free.length + ' Workouts übernommen');
+            free.forEach((w, k) => {
+              if (k < targets.length) fill(st.parts[targets[k]], w);
+              else { const np = emptyPart(); np.sport = sport; fill(np, w); st.parts.splice(targets[targets.length - 1] + 1 + (k - targets.length), 0, np); }
+            });
+            renderParts(); toast(free.length + ' Workouts in zeitlicher Reihenfolge übernommen');
           };
+          const others = free.filter((w) => w !== pick);
+          const openErgo = st.parts.filter((q, k) => k !== i && isErgo(q) && !hasC(q)).length;
+          renderParts();
+          const box2 = $(`[data-pick="${i}"]`, list);
+          if (!others.length) { toast('Workout von ' + tm(pick) + ' übernommen' + (all.length > 1 ? ' (die anderen sind schon eingetragen)' : '')); return; }
+          toast('Workout von ' + tm(pick) + ' übernommen');
+          box2.innerHTML = `<div class="faint">Übernommen: <b>${esc(tm(pick))}</b> (nach Uhrzeit passend zur Position). Anderes Workout?</div>`
+            + others.map((w) => `<button type="button" class="btn small secondary block mt" data-w2="${esc(String(w.id))}">${esc(tm(w))} · ${esc(c2Summary(w))}</button>`).join('')
+            + `<button type="button" class="btn small block mt" data-wall="1">Alle ${free.length} Workouts der Reihe nach verteilen${openErgo ? '' : ' (je ein Bestandteil)'}</button>`;
+          $$('[data-w2]', box2).forEach((x) => x.onclick = () => apply(free.find((w) => String(w.id) === x.dataset.w2)));
+          $('[data-wall]', box2).onclick = fillAll;
         } catch (e) { toast(e.message); b.disabled = false; b.textContent = 'Concept2'; }
       });
       $$('[data-pcam]', list).forEach((inp) => inp.onchange = async () => { const i = Number(inp.dataset.pcam); const p = st.parts[i]; await addFiles(inp, p.sport || 'Bestandteil ' + (i + 1)); renderParts(); });
